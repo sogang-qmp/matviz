@@ -1,0 +1,17 @@
+
+     Program PWSCF v.7.2 starts on 31Mar2026 at 12:00:00
+
+     bravais-lattice index     =            2
+     lattice parameter (alat)  =      10.2631  a.u.
+     celldm(1)=  10.263100  celldm(2)=   0.000000  celldm(3)=   0.000000
+
+CELL_PARAMETERS (angstrom)
+   0.000000000   2.715500000   2.715500000
+   2.715500000   0.000000000   2.715500000
+   2.715500000   2.715500000   0.000000000
+
+ATOMIC_POSITIONS (crystal)
+Si            0.0000000000        0.0000000000        0.0000000000
+Si            0.2500000000        0.2500000000        0.2500000000
+
+     Final energy   =     -15.85401285 Ry

@@ -1,8 +1,8 @@
 {
   "name": "vscode-matviz",
   "displayName": "MatViz - Crystal Structure Viewer",
-  "description": "Interactive 3D crystal structure visualization for CIF, POSCAR, and XSF files",
-  "version": "0.1.0",
+  "description": "Interactive 3D crystal structure visualization for CIF, POSCAR, XSF, XYZ, PDB, Gaussian Cube, and more",
+  "version": "0.10.0",
   "publisher": "matviz",
   "engines": {
     "vscode": "^1.85.0"
@@ -23,7 +23,16 @@
           { "filenamePattern": "*.poscar" },
           { "filenamePattern": "*.vasp" },
           { "filenamePattern": "POSCAR" },
-          { "filenamePattern": "CONTCAR" }
+          { "filenamePattern": "CONTCAR" },
+          { "filenamePattern": "*.xyz" },
+          { "filenamePattern": "*.pdb" },
+          { "filenamePattern": "*.cube" },
+          { "filenamePattern": "*.cub" },
+          { "filenamePattern": "CHGCAR" },
+          { "filenamePattern": "AECCAR0" },
+          { "filenamePattern": "AECCAR2" },
+          { "filenamePattern": "PARCHG" },
+          { "filenamePattern": "geometry.in" }
         ],
         "priority": "default"
       }
@@ -36,6 +45,26 @@
       {
         "command": "matviz.toggleBonds",
         "title": "MatViz: Toggle Bonds"
+      },
+      {
+        "command": "matviz.viewAlongDirection",
+        "title": "MatViz: View Along Direction [uvw]"
+      },
+      {
+        "command": "matviz.viewNormalToPlane",
+        "title": "MatViz: View Normal to Plane (hkl)"
+      },
+      {
+        "command": "matviz.addLatticePlane",
+        "title": "MatViz: Add Lattice Plane (hkl)"
+      },
+      {
+        "command": "matviz.clearLatticePlanes",
+        "title": "MatViz: Clear Lattice Planes"
+      },
+      {
+        "command": "matviz.screenshot",
+        "title": "MatViz: Export Screenshot"
       }
     ]
   },

@@ -1,7 +1,7 @@
-import { CrystalStructure } from './types';
+import { CrystalStructure, VolumetricData } from './types';
 import { getElementByNumber } from './elements';
 
-export function parseXsf(content: string): CrystalStructure {
+export function parseXsf(content: string): CrystalStructure & { volumetric?: VolumetricData } {
   const lines = content.split('\n');
   let lattice: [number, number, number][] = [];
   const species: string[] = [];
@@ -93,5 +93,59 @@ export function parseXsf(content: string): CrystalStructure {
     lattice = [[10, 0, 0], [0, 10, 0], [0, 0, 10]];
   }
 
-  return { lattice, species, positions, pbc, title };
+  // Parse BLOCK_DATAGRID_3D if present
+  let volumetric: VolumetricData | undefined;
+  const datagridIdx = content.indexOf('BEGIN_BLOCK_DATAGRID_3D');
+  if (datagridIdx >= 0) {
+    volumetric = parseDatagrid3D(content.slice(datagridIdx));
+  }
+
+  return { lattice, species, positions, pbc, title, volumetric };
+}
+
+function parseDatagrid3D(block: string): VolumetricData | undefined {
+  const lines = block.split('\n');
+  let i = 0;
+
+  // Find BEGIN_DATAGRID_3D
+  while (i < lines.length && !lines[i].trim().startsWith('BEGIN_DATAGRID_3D')) i++;
+  if (i >= lines.length) return undefined;
+  i++;
+
+  // Grid dimensions
+  const dimTokens = lines[i].trim().split(/\s+/).map(Number);
+  const nx = dimTokens[0], ny = dimTokens[1], nz = dimTokens[2];
+  i++;
+
+  // Origin
+  const origTokens = lines[i].trim().split(/\s+/).map(Number);
+  const origin: [number, number, number] = [origTokens[0], origTokens[1], origTokens[2]];
+  i++;
+
+  // 3 spanning vectors
+  const gridLattice: [number, number, number][] = [];
+  for (let v = 0; v < 3; v++) {
+    const vTokens = lines[i].trim().split(/\s+/).map(Number);
+    gridLattice.push([vTokens[0], vTokens[1], vTokens[2]]);
+    i++;
+  }
+
+  // Data values
+  const totalPoints = nx * ny * nz;
+  const data = new Float32Array(totalPoints);
+  let idx = 0;
+
+  while (i < lines.length && idx < totalPoints) {
+    const line = lines[i].trim();
+    if (line.startsWith('END_DATAGRID_3D') || line.startsWith('END_BLOCK_DATAGRID_3D')) break;
+    const tokens = line.split(/\s+/);
+    for (const t of tokens) {
+      if (idx < totalPoints && t !== '') {
+        data[idx++] = parseFloat(t);
+      }
+    }
+    i++;
+  }
+
+  return { origin, lattice: gridLattice, dims: [nx, ny, nz], data };
 }

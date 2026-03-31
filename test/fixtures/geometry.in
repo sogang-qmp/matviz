@@ -1,0 +1,7 @@
+# FHI-aims geometry file: GaAs zinc blende
+lattice_vector  0.000000  2.827000  2.827000
+lattice_vector  2.827000  0.000000  2.827000
+lattice_vector  2.827000  2.827000  0.000000
+
+atom_frac  0.00  0.00  0.00  Ga
+atom_frac  0.25  0.25  0.25  As
