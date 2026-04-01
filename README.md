@@ -105,6 +105,8 @@ Files are automatically opened with the 3D viewer. Click the document icon in th
 
 ## Commands (Command Palette)
 
+Open the Command Palette with **Cmd+Shift+P** (macOS) / **Ctrl+Shift+P** (Windows/Linux) and type `MatViz` to see all available commands.
+
 | Command | Description |
 |---|---|
 | `MatViz: Reset Camera` | Reset to default view |
