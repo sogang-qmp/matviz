@@ -142,7 +142,7 @@ Or step-by-step:
 npm install
 npm run build
 npx @vscode/vsce package --no-dependencies
-code --install-extension vscode-matviz-0.12.0.vsix --force
+code --install-extension vscode-matviz-0.13.0.vsix --force
 npm run install-skill   # optional — only if you use Claude Code
 ```
 

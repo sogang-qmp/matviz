@@ -55,18 +55,23 @@ export function parseChgcar(content: string): { structure: CrystalStructure; vol
   const nz = gridTokens[2];
   gridLine++;
 
-  // Read charge density values
+  // Read charge density values — CHGCAR writes with ix fastest (Fortran order).
+  // Store in C order (iz fastest) so `data[ix*ny*nz + iy*nz + iz]` works downstream.
   const totalPoints = nx * ny * nz;
   const data = new Float32Array(totalPoints);
-  let idx = 0;
+  let ix = 0, iy = 0, iz = 0;
+  let count = 0;
 
-  for (let i = gridLine; i < lines.length && idx < totalPoints; i++) {
+  for (let i = gridLine; i < lines.length && count < totalPoints; i++) {
     const line = lines[i].trim();
     if (line === '' || line.startsWith('augmentation')) break;
     const tokens = line.split(/\s+/);
     for (const t of tokens) {
-      if (idx < totalPoints) {
-        data[idx++] = parseFloat(t);
+      if (count < totalPoints && t !== '') {
+        data[ix * ny * nz + iy * nz + iz] = parseFloat(t);
+        count++;
+        ix++;
+        if (ix === nx) { ix = 0; iy++; if (iy === ny) { iy = 0; iz++; } }
       }
     }
   }

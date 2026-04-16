@@ -130,18 +130,23 @@ function parseDatagrid3D(block: string): VolumetricData | undefined {
     i++;
   }
 
-  // Data values
+  // Data values — XSF writes with ix fastest (Fortran order). Store in C order
+  // (ix slowest, iz fastest) so `data[ix*ny*nz + iy*nz + iz]` works downstream.
   const totalPoints = nx * ny * nz;
   const data = new Float32Array(totalPoints);
-  let idx = 0;
+  let ix = 0, iy = 0, iz = 0;
+  let count = 0;
 
-  while (i < lines.length && idx < totalPoints) {
+  while (i < lines.length && count < totalPoints) {
     const line = lines[i].trim();
     if (line.startsWith('END_DATAGRID_3D') || line.startsWith('END_BLOCK_DATAGRID_3D')) break;
     const tokens = line.split(/\s+/);
     for (const t of tokens) {
-      if (idx < totalPoints && t !== '') {
-        data[idx++] = parseFloat(t);
+      if (count < totalPoints && t !== '') {
+        data[ix * ny * nz + iy * nz + iz] = parseFloat(t);
+        count++;
+        ix++;
+        if (ix === nx) { ix = 0; iy++; if (iy === ny) { iy = 0; iz++; } }
       }
     }
     i++;
