@@ -23,6 +23,27 @@ const webviewConfig = {
   sourcemap: true,
 };
 
+const cliConfig = {
+  entryPoints: ['scripts/render.ts'],
+  bundle: true,
+  outfile: 'dist/render.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  sourcemap: true,
+  external: ['puppeteer'],
+};
+
+const cliHelpersConfig = {
+  entryPoints: ['scripts/render-helpers.ts'],
+  bundle: true,
+  outfile: 'dist/render-helpers.js',
+  format: 'esm',
+  platform: 'browser',
+  target: 'es2020',
+  sourcemap: false,
+};
+
 if (watch) {
   const ctx1 = await esbuild.context(extensionConfig);
   const ctx2 = await esbuild.context(webviewConfig);
@@ -32,5 +53,7 @@ if (watch) {
 } else {
   await esbuild.build(extensionConfig);
   await esbuild.build(webviewConfig);
+  await esbuild.build(cliConfig);
+  await esbuild.build(cliHelpersConfig);
   console.log('Build complete.');
 }

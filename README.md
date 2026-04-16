@@ -129,11 +129,40 @@ npx tsc --noEmit       # type check only
 
 ## Install from Source
 
+Full install (VSCode extension + Claude CLI skill):
+
 ```bash
+npm install
+npm run install-all
+```
+
+Or step-by-step:
+
+```bash
+npm install
 npm run build
 npx @vscode/vsce package --no-dependencies
-code --install-extension vscode-matviz-0.10.0.vsix --force
+code --install-extension vscode-matviz-0.12.0.vsix --force
+npm run install-skill   # optional — only if you use Claude Code
 ```
+
+## Headless CLI Renderer
+
+MatViz also ships a command-line renderer for producing PNG images of
+structures without opening VSCode — useful in scripts, CI pipelines, or
+AI-assisted report workflows.
+
+```bash
+node dist/render.js structure.cif -o out.png [options]
+```
+
+Options: `--style`, `--view`, `--supercell`, `--camera`, `--palette`,
+`--bg`, `--labels`, `--polyhedra`, `--iso`, `--no-bonds`, `--no-boundary`,
+`--no-cell`. See `node dist/render.js --help` for the full list.
+
+The `matviz-render` Claude skill lets Claude Code invoke the CLI when you
+ask things like "render this POSCAR" or "보고서에 구조 이미지 넣어줘".
+Run `npm run install-skill` to install the skill to `~/.claude/skills/`.
 
 ## Architecture
 
