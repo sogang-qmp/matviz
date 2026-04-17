@@ -6,6 +6,11 @@
 
 :root {
   --top-bar-h: 46px;
+  --mode-bar-w: 40px;
+  --side-panel-w: 200px;
+  /* left-edge of the canvas in offset layout mode; updated from main.ts
+     as the panel is collapsed/resized. */
+  --layout-offset-left: calc(var(--mode-bar-w) + var(--side-panel-w));
 }
 
 html, body {
@@ -18,6 +23,17 @@ html, body {
 #canvas {
   display: block;
   width: 100%;
+  height: 100%;
+}
+
+/* Offset layout mode — canvas starts right of the side panel, so atoms
+   cannot be hidden behind it. Overlay mode (default without this class)
+   leaves the canvas full-width with the panel floating above it. */
+body.layout-offset #canvas {
+  position: absolute;
+  top: 0;
+  left: var(--layout-offset-left);
+  width: calc(100% - var(--layout-offset-left));
   height: 100%;
 }
 
@@ -89,6 +105,28 @@ html, body {
   font-size: 14px;
   color: var(--vscode-editor-foreground, #ccc);
   z-index: 10;
+  container-type: inline-size;
+  container-name: topbar;
+}
+
+/* Compact: hide label text (inputs remain reachable), shrink button padding */
+@container topbar (max-width: 650px) {
+  .bar-label > :not(.bar-input) { display: none; }
+  .bar-label { margin-left: 2px; gap: 0; }
+  .bar-btn { min-width: 28px; height: 28px; padding: 0 4px; font-size: 14px; }
+  .bar-sep { margin: 0 3px; }
+  .bar-input { width: 40px; height: 26px; font-size: 12px; }
+}
+
+/* Wide: roomier buttons */
+@container topbar (min-width: 1200px) {
+  .bar-btn { min-width: 38px; height: 34px; }
+  .bar-label { margin-left: 10px; }
+}
+
+/* Fallback via viewport width when container queries aren't supported */
+@media (max-width: 650px) {
+  .bar-label > :not(.bar-input) { display: none; }
 }
 
 .bar-group {
@@ -298,6 +336,15 @@ html, body {
 
 .hidden { display: none; }
 
+.layout-toggle-row {
+  display: flex;
+  gap: 4px;
+}
+
+.layout-toggle-row .panel-btn {
+  flex: 1;
+}
+
 /* ===== Properties panels ===== */
 .panel-label-toggle {
   cursor: pointer;
@@ -394,6 +441,95 @@ html, body {
   width: 100%;
   height: 18px;
   accent-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.bond-skip-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--vscode-inputValidation-warningBackground, rgba(200, 140, 0, 0.15));
+  border: 1px solid var(--vscode-inputValidation-warningBorder, #c88c00);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--vscode-editor-foreground, #ccc);
+}
+
+/* ===== Help overlay ===== */
+#help-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#help-overlay.hidden { display: none; }
+
+#help-card {
+  background: var(--vscode-editorWidget-background, #252526);
+  border: 1px solid var(--vscode-editorWidget-border, #444);
+  border-radius: 8px;
+  padding: 16px 20px;
+  min-width: 420px;
+  max-width: 720px;
+  color: var(--vscode-editor-foreground, #ccc);
+  font-family: var(--vscode-font-family, monospace);
+  font-size: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+#help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--vscode-editorWidget-border, #444);
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+  font-size: 16px;
+  font-weight: bold;
+}
+
+#help-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.help-col { display: flex; flex-direction: column; gap: 4px; }
+
+.help-h {
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground, #888);
+  margin-top: 6px;
+  letter-spacing: 0.5px;
+}
+
+.help-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.help-row > span:last-child {
+  flex: 1;
+  color: var(--vscode-descriptionForeground, #aaa);
+}
+
+.help-row kbd {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px 5px;
+  background: var(--vscode-input-background, #3c3c3c);
+  border: 1px solid var(--vscode-input-border, #555);
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: center;
 }
 
 /* ===== Tooltip ===== */

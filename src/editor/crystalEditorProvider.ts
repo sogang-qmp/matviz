@@ -153,6 +153,39 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     <button id="mode-measure" class="mode-btn" title="Measure (click 2/3/4 atoms)">&#x2194;</button>
     <div class="mode-sep"></div>
     <button id="panel-toggle" class="mode-btn" title="Toggle side panel">&#x25C0;</button>
+    <button id="help-btn" class="mode-btn" title="Keyboard shortcuts (?)">?</button>
+  </div>
+
+  <!-- Shortcuts help overlay -->
+  <div id="help-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <div id="help-card">
+      <div id="help-head">
+        <span id="help-title">Keyboard Shortcuts</span>
+        <button id="help-close" class="bar-btn" title="Close (Esc)" aria-label="Close">&#x2715;</button>
+      </div>
+      <div id="help-body">
+        <div class="help-col">
+          <div class="help-h">Rotation</div>
+          <div class="help-row"><kbd>&#x2190;</kbd><kbd>&#x2193;</kbd><kbd>&#x2191;</kbd><kbd>&#x2192;</kbd><span>Rotate by step</span></div>
+          <div class="help-row"><kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd><span>Rotate (vim keys)</span></div>
+          <div class="help-row"><kbd>[</kbd> / <kbd>]</kbd><span>Rotate CCW / CW</span></div>
+          <div class="help-row"><kbd>Shift</kbd>+key<span>Rotate by 1&deg; (arrows / hjkl / [ ])</span></div>
+          <div class="help-h">Zoom</div>
+          <div class="help-row"><kbd>+</kbd> / <kbd>=</kbd><span>Zoom in</span></div>
+          <div class="help-row"><kbd>&minus;</kbd><span>Zoom out</span></div>
+          <div class="help-row"><span>Mouse wheel</span><span>Zoom</span></div>
+        </div>
+        <div class="help-col">
+          <div class="help-h">Navigation</div>
+          <div class="help-row"><span>Left drag</span><span>Rotate</span></div>
+          <div class="help-row"><span>Right / Mid drag</span><span>Pan</span></div>
+          <div class="help-row"><span>Click atom</span><span>Select / info</span></div>
+          <div class="help-h">Modes &amp; Misc</div>
+          <div class="help-row"><kbd>Esc</kbd><span>Close help / clear selection / measurement</span></div>
+          <div class="help-row"><kbd>?</kbd><span>This help</span></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Top toolbar -->
@@ -203,6 +236,13 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     <div id="panel-resize"></div>
     <div id="info"></div>
     <div class="panel-section">
+      <div class="panel-label" title="Whether the side panel pushes the canvas aside (Offset) or floats above it (Overlay)">Layout</div>
+      <div class="layout-toggle-row">
+        <button id="layout-offset-btn" class="panel-btn active" title="Offset: canvas starts right of the panel — no atom is ever hidden behind it">Offset</button>
+        <button id="layout-overlay-btn" class="panel-btn" title="Overlay: panel floats above the canvas (classic mode)">Overlay</button>
+      </div>
+    </div>
+    <div class="panel-section">
       <div class="panel-label">Style</div>
       <select id="display-style" class="panel-select" title="Rendering style for atoms and bonds">
         <option value="ball-and-stick" selected title="Atoms as spheres, bonds as split-color cylinders">Ball &amp; Stick</option>
@@ -248,6 +288,10 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     </div>
     <div class="panel-section">
       <div class="panel-label panel-label-toggle" id="bonds-toggle" title="Expand per-pair bond cutoff settings">Bonds &#x25B6;</div>
+      <div id="bond-skip-hint" class="bond-skip-hint hidden">
+        <span id="bond-skip-msg"></span>
+        <button id="bond-force-btn" class="panel-btn" title="Run bond detection anyway (may be slow)">Compute anyway</button>
+      </div>
       <div id="bonds-props" class="props-list hidden"></div>
     </div>
   </div>

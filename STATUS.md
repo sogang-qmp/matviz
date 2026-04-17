@@ -1,7 +1,7 @@
 # Project Status
 
-- **Version**: v0.13.1 (released 2026-04-17) — hardening: shared elements-data, editor error boundary, ambiguous-extension priority:"option" + "Open in MatViz" button, QE silent-default removal, renderer material registry, CLI try/finally, CSP tightening
-- **Phase**: v0.14 kickoff pending — scope shifted: UX polish (originally v0.13) now v0.14
+- **Version**: v0.14.0 (released 2026-04-17) — UX polish: sidebar layout offset/overlay toggle, responsive toolbar (container queries), `?` shortcut modal, bond-skip hint + "Compute anyway", persistence schema v1 (panel + steps + overrides), AxisIndicator extraction, 16 k-atom stress fixture
+- **Phase**: v0.15 planning
 - **People**: Seungwoo Shin (twinace98)
 - **Repo**: https://github.com/twinace98/matviz.git
 
@@ -9,7 +9,7 @@
 
 1. Read in order: `CLAUDE.md` (architecture + workflow) → `Plan.md` (roadmap) → this file → active `plans/` pair if any.
 2. Auto-memory loads from `~/.claude/projects/-home-swshin-matviz/memory/`.
-3. **Next action**: kickoff v0.14 (UX polish) — draft `plans/v0.14_ux-polish.md` pair from the Plan.md v0.14 section, request approval, then start features. Alternatively, extend the CLI renderer with deferred features (labels, polyhedra, isosurface) as a v0.13.x patch if priority shifts.
+3. **Next action**: v0.15 scoping — advanced rendering (sphere impostors, GPU picking, optional WebGPU path).
 
 ## Completed
 
@@ -18,6 +18,7 @@
 - **v0.11** (2026-04-15): UI overhaul — dark/light palette toggle, rotation sensitivity fix, clipping fix for large supercells
 - **v0.12** (2026-04-16): Rendering fixes, license cleanup, boundary wrap logic, stick style fix, bond defaults (`rA+rB+0.3`), adaptive top-bar, collapsible side panel, canvas sizing fix
 - **v0.13** (2026-04-16): Headless CLI renderer (`scripts/render.ts` → `dist/render.js`) via Puppeteer + SwiftShader; Claude skill `matviz-render`; XSF/CHGCAR isosurface axis-order hotfix (Fortran→C layout at parse time)
+- **v0.14.0** (2026-04-17): UX polish — sidebar layout modes (offset default, overlay preserved), responsive toolbar via CSS container queries, keyboard shortcut modal on `?`, bond-detection skip hint with "Compute anyway" for >5 000-atom structures, persisted state schema v1 (layout/panel/steps/visibility/element + bond overrides/iso/axis size), AxisIndicator component extracted to `src/webview/axisIndicator.ts`, 16 000-atom diamond stress fixture
 - **v0.13.1** (2026-04-17): Hardening release — single-source element data (`src/shared/elements-data.ts`, 80 elements w/ lanthanide displayRadius fill), editor parse-error boundary with "Open as Text" fallback, ambiguous `.in/.out/.stdin/.stdout/.pw` editor priority lowered to `"option"` + title-bar "Open in MatViz" button, QE parser throws on empty parse instead of returning 10×10×10 default, renderer material registry disposes all inline `MeshPhong/MeshBasic/Line/Sprite` allocations, CLI renderer `try/finally` around browser lifecycle, webview CSP dropped `'unsafe-inline'` (inline styles → utility classes)
 
 ## Hotfixes
@@ -26,7 +27,6 @@
 
 ## Pending (from Plan.md)
 
-- [ ] **v0.14** — UX polish (side panel layout mode, responsive toolbar, shortcut discoverability, state persistence, perf budget)
 - [ ] **v0.15** — Advanced rendering (sphere impostors, WebGPU, etc.)
 - [ ] **v0.16** — Extended crystallography (thermal ellipsoids, partial occupancy, magnetic moments)
 - [ ] **v0.17** — Animation & multi-structure (MD trajectory, multi-phase overlay)

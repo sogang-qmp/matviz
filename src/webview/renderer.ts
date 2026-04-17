@@ -6,6 +6,7 @@ import { getElementPaletteColor, getPaletteLineColors } from '../shared/elements
 import type { ColorPalette } from '../shared/elements-palette';
 import type { DisplayStyle, CameraMode, BondStyle } from './message';
 import { marchingCubes } from './marchingCubes';
+import { AxisIndicator } from './axisIndicator';
 import type { VolumetricData } from '../parsers/types';
 
 interface BondInfo {
@@ -101,10 +102,7 @@ export class CrystalRenderer {
   private static readonly HIGHLIGHT_COLOR = new THREE.Color(0x00ffff);
 
   // Axis indicator (bottom-left inset)
-  private axisScene = new THREE.Scene();
-  private axisCamera = new THREE.OrthographicCamera(-2, 2, 2, -2, 0.1, 10);
-  private axisArrows: THREE.Group = new THREE.Group();
-  private axisInsetSize = 300;
+  private axisIndicator = new AxisIndicator();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -152,7 +150,8 @@ export class CrystalRenderer {
     this.initAxisIndicator();
 
     const ro = new ResizeObserver(() => this.onResize());
-    ro.observe(canvas.parentElement || canvas);
+    ro.observe(canvas);
+    if (canvas.parentElement) ro.observe(canvas.parentElement);
 
     // Click handler for picking
     canvas.addEventListener('click', (e) => this.onCanvasClick(e));
@@ -260,11 +259,14 @@ export class CrystalRenderer {
   getShowCellDash(): boolean { return this.showCellDash; }
 
   setAxisIndicatorSize(size: number) {
-    this.axisInsetSize = Math.max(60, Math.min(400, size));
+    this.axisIndicator.setSize(size);
     this.requestRender();
   }
 
-  getAxisIndicatorSize(): number { return this.axisInsetSize; }
+  getAxisIndicatorSize(): number { return this.axisIndicator.size; }
+
+  private get axisInsetSize(): number { return this.axisIndicator.size; }
+  private set axisInsetSize(px: number) { this.axisIndicator.setSize(px); }
 
   setBondStyle(style: BondStyle) {
     if (style === this.bondStyle) return;
@@ -577,37 +579,76 @@ export class CrystalRenderer {
   // --- State persistence ---
 
   getState(): {
+    schemaVersion: 1;
     displayStyle: DisplayStyle;
     cameraMode: CameraMode;
     showBonds: boolean;
     showLabels: boolean;
+    showPolyhedra: boolean;
+    showBoundaryAtoms: boolean;
+    showCellDash: boolean;
     supercell: [number, number, number];
     cameraPosition: [number, number, number];
     controlsTarget: [number, number, number];
     orthoZoom: number;
     colorPalette: ColorPalette;
+    axisIndicatorSize: number;
+    isoLevel: number;
+    forceBonds: boolean;
+    elementColorOverrides: { [k: string]: string };
+    elementRadiusOverrides: { [k: string]: number };
+    elementVisibility: { [k: string]: boolean };
+    bondOverrides: { [pair: string]: { min: number; max: number; enabled: boolean } };
   } {
     const pos = this.activeCamera.position;
     const target = this.controls.target;
+    const bondOverrides: { [k: string]: { min: number; max: number; enabled: boolean } } = {};
+    for (const [pair, p] of this.bondParams) bondOverrides[pair] = { min: p.min, max: p.max, enabled: p.enabled };
     return {
+      schemaVersion: 1,
       displayStyle: this.displayStyle,
       cameraMode: this.cameraMode,
       showBonds: this.showBonds,
       showLabels: this.showLabels,
+      showPolyhedra: this.showPolyhedra,
+      showBoundaryAtoms: this.showBoundaryAtoms,
+      showCellDash: this.showCellDash,
       supercell: this.supercell,
       cameraPosition: [pos.x, pos.y, pos.z],
       controlsTarget: [target.x, target.y, target.z],
       orthoZoom: this.orthoCamera.zoom,
       colorPalette: this.colorPalette,
+      axisIndicatorSize: this.axisInsetSize,
+      isoLevel: this.isoLevel,
+      forceBonds: this.forceBonds,
+      elementColorOverrides: Object.fromEntries(this.elementColorOverrides),
+      elementRadiusOverrides: Object.fromEntries(this.elementRadiusOverrides),
+      elementVisibility: Object.fromEntries(this.elementVisibility),
+      bondOverrides,
     };
   }
 
   restoreState(state: ReturnType<CrystalRenderer['getState']>) {
+    if (state.schemaVersion !== 1) return;
     this.displayStyle = state.displayStyle;
     this.showBonds = state.showBonds;
     this.showLabels = state.showLabels;
+    if (typeof state.showPolyhedra === 'boolean') this.showPolyhedra = state.showPolyhedra;
+    if (typeof state.showBoundaryAtoms === 'boolean') this.showBoundaryAtoms = state.showBoundaryAtoms;
+    if (typeof state.showCellDash === 'boolean') this.showCellDash = state.showCellDash;
     this.supercell = state.supercell;
     if (state.colorPalette) this.colorPalette = state.colorPalette;
+    if (typeof state.axisIndicatorSize === 'number') this.axisInsetSize = state.axisIndicatorSize;
+    if (typeof state.isoLevel === 'number') this.isoLevel = state.isoLevel;
+    if (typeof state.forceBonds === 'boolean') this.forceBonds = state.forceBonds;
+    if (state.elementColorOverrides) this.elementColorOverrides = new Map(Object.entries(state.elementColorOverrides));
+    if (state.elementRadiusOverrides) this.elementRadiusOverrides = new Map(Object.entries(state.elementRadiusOverrides));
+    if (state.elementVisibility) this.elementVisibility = new Map(Object.entries(state.elementVisibility));
+    if (state.bondOverrides) {
+      for (const [pair, p] of Object.entries(state.bondOverrides)) {
+        this.bondParams.set(pair, { min: p.min, max: p.max, enabled: p.enabled });
+      }
+    }
 
     if (state.cameraMode !== this.cameraMode) {
       this.setCameraMode(state.cameraMode);
@@ -831,82 +872,13 @@ export class CrystalRenderer {
 
   // --- Axis indicator ---
 
-  private initAxisIndicator() {
-    this.axisCamera.position.set(0, 0, 5);
-    this.axisCamera.lookAt(0, 0, 0);
-    const light = new THREE.AmbientLight(0xffffff, 1.0);
-    this.axisScene.add(light);
-    this.axisScene.add(this.axisArrows);
-
-    // Build default axes (will be updated when structure loads)
-    this.buildAxisArrows(
-      [1, 0, 0],
-      [0, 1, 0],
-      [0, 0, 1],
-    );
-  }
-
-  private buildAxisArrows(a: number[], b: number[], c: number[]) {
-    // Clear existing
-    while (this.axisArrows.children.length > 0) {
-      this.axisArrows.remove(this.axisArrows.children[0]);
-    }
-
-    const dirs = [
-      { v: new THREE.Vector3(...a).normalize(), color: 0xff3333, label: 'a' },
-      { v: new THREE.Vector3(...b).normalize(), color: 0x33cc33, label: 'b' },
-      { v: new THREE.Vector3(...c).normalize(), color: 0x3377ff, label: 'c' },
-    ];
-
-    for (const { v, color, label } of dirs) {
-      // Arrow shaft (cylinder)
-      const shaftGeo = new THREE.CylinderGeometry(0.04, 0.04, 1.0, 8);
-      shaftGeo.translate(0, 0.5, 0);
-      shaftGeo.rotateX(Math.PI / 2);
-      const shaftMat = this.trackMat(new THREE.MeshBasicMaterial({ color }));
-      const shaft = new THREE.Mesh(shaftGeo, shaftMat);
-      shaft.lookAt(v);
-      this.axisArrows.add(shaft);
-
-      // Arrow head (cone)
-      const headGeo = new THREE.ConeGeometry(0.1, 0.25, 8);
-      headGeo.translate(0, 0.125, 0);
-      headGeo.rotateX(Math.PI / 2);
-      const headMat = this.trackMat(new THREE.MeshBasicMaterial({ color }));
-      const head = new THREE.Mesh(headGeo, headMat);
-      head.position.copy(v.clone().multiplyScalar(1.0));
-      head.lookAt(v.clone().multiplyScalar(2));
-      this.axisArrows.add(head);
-
-      // Label
-      const canvas = document.createElement('canvas');
-      canvas.width = 64;
-      canvas.height = 64;
-      const ctx = canvas.getContext('2d')!;
-      ctx.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
-      ctx.font = 'bold 48px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(label, 32, 32);
-      const tex = new THREE.CanvasTexture(canvas);
-      const spriteMat = this.trackMat(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
-      const sprite = new THREE.Sprite(spriteMat);
-      sprite.position.copy(v.clone().multiplyScalar(1.4));
-      sprite.scale.set(0.4, 0.4, 1);
-      this.axisArrows.add(sprite);
-    }
-
-    // Origin sphere
-    const originGeo = new THREE.SphereGeometry(0.06, 8, 6);
-    const originMat = this.trackMat(new THREE.MeshBasicMaterial({ color: 0xaaaaaa }));
-    this.axisArrows.add(new THREE.Mesh(originGeo, originMat));
-  }
+  private initAxisIndicator() { /* handled by AxisIndicator class */ }
 
   /** Update axis directions when a structure is loaded */
   private updateAxisIndicator() {
     if (!this.structure) return;
     const lat = this.structure.lattice;
-    this.buildAxisArrows(lat[0], lat[1], lat[2]);
+    this.axisIndicator.update(lat[0], lat[1], lat[2]);
   }
 
   // --- On-demand rendering ---
@@ -927,25 +899,8 @@ export class CrystalRenderer {
     this.renderer.setScissorTest(false);
     this.renderer.render(this.scene, this.activeCamera);
 
-    // Axis indicator (bottom-left inset) — overlay without clearing color buffer
-    const insetSize = this.axisInsetSize;
-    const insetX = 4;
-    const insetY = 4;
-
-    // Sync axis camera orientation with main camera
-    const camDir = this.activeCamera.position.clone().sub(this.controls.target).normalize();
-    this.axisCamera.position.copy(camDir.multiplyScalar(5));
-    this.axisCamera.up.copy(this.activeCamera.up);
-    this.axisCamera.lookAt(0, 0, 0);
-
-    this.renderer.setViewport(insetX, insetY, insetSize, insetSize);
-    this.renderer.setScissorTest(true);
-    this.renderer.setScissor(insetX, insetY, insetSize, insetSize);
-    this.renderer.autoClear = false;
-    this.renderer.clearDepth();
-    this.renderer.render(this.axisScene, this.axisCamera);
-    this.renderer.autoClear = true;
-    this.renderer.setScissorTest(false);
+    this.axisIndicator.syncToMainCamera(this.activeCamera, this.controls.target);
+    this.axisIndicator.render(this.renderer);
   }
 
   // --- Material cache ---
@@ -1466,9 +1421,27 @@ export class CrystalRenderer {
 
   // --- Bond detection with spatial hashing + periodic boundary ---
 
+  getBondSkipInfo(): { skipped: boolean; atomCount: number; limit: number; estimateMs: number } {
+    const n = this.expandedPositions?.length ?? 0;
+    const limit = 5000;
+    // Spatial hash is ~O(N); assume ~30 ns/atom on SwiftShader-class hardware.
+    const estimateMs = Math.min(10000, Math.round(n * 0.03));
+    return { skipped: n > limit && !this.forceBonds, atomCount: n, limit, estimateMs };
+  }
+
+  setForceBonds(force: boolean) {
+    this.forceBonds = force;
+    if (this.structure) {
+      this.cachedBonds = this.detectBonds(this.expandedSpecies, this.expandedPositions);
+      this.buildVisuals();
+    }
+  }
+
+  private forceBonds = false;
+
   private detectBonds(species: string[], positions: [number, number, number][]): BondInfo[] {
     const n = positions.length;
-    if (n > 5000) return [];
+    if (n > 5000 && !this.forceBonds) return [];
 
     // Find max bond cutoff
     let maxCutoff = 0;
@@ -2008,10 +1981,11 @@ export class CrystalRenderer {
   }
 
   private onResize() {
-    const parent = this.canvas.parentElement;
-    if (!parent) return;
-    const w = parent.clientWidth;
-    const h = parent.clientHeight;
+    // Read the canvas' own rendered size so layout modes (overlay/offset)
+    // that shrink the canvas below the viewport width work correctly.
+    const w = this.canvas.clientWidth || this.canvas.parentElement?.clientWidth || 0;
+    const h = this.canvas.clientHeight || this.canvas.parentElement?.clientHeight || 0;
+    if (!w || !h) return;
     const aspect = w / h;
 
     this.perspCamera.aspect = aspect;

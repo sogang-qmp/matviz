@@ -34,17 +34,51 @@ const renderer = new CrystalRenderer(canvas);
 const panelToggle = document.getElementById('panel-toggle') as HTMLButtonElement;
 const sidePanel = document.getElementById('side-panel') as HTMLDivElement;
 
+// --- Layout mode (offset vs overlay) ---
+type LayoutMode = 'offset' | 'overlay';
+const layoutOffsetBtn = document.getElementById('layout-offset-btn') as HTMLButtonElement | null;
+const layoutOverlayBtn = document.getElementById('layout-overlay-btn') as HTMLButtonElement | null;
+const MODE_BAR_WIDTH = 40;
+
+function updateLayoutOffsetVar() {
+  // Offset from viewport-left to the canvas' left edge when layout-offset is active.
+  const collapsed = sidePanel.classList.contains('collapsed');
+  const panelWidth = collapsed ? 0 : sidePanel.getBoundingClientRect().width;
+  const offset = MODE_BAR_WIDTH + panelWidth;
+  document.documentElement.style.setProperty('--layout-offset-left', `${offset}px`);
+}
+
+function applyLayoutMode(mode: LayoutMode) {
+  document.body.classList.toggle('layout-offset', mode === 'offset');
+  layoutOffsetBtn?.classList.toggle('active', mode === 'offset');
+  layoutOverlayBtn?.classList.toggle('active', mode === 'overlay');
+  updateLayoutOffsetVar();
+}
+
+// Default offset per v0.14 decision; overlay path preserved and toggle-reachable.
+let layoutMode: LayoutMode = 'offset';
+function setLayoutMode(mode: LayoutMode) {
+  layoutMode = mode;
+  applyLayoutMode(mode);
+  debouncedSave();
+}
+applyLayoutMode('offset');
+
+layoutOffsetBtn?.addEventListener('click', () => setLayoutMode('offset'));
+layoutOverlayBtn?.addEventListener('click', () => setLayoutMode('overlay'));
+
 if (panelToggle && sidePanel) {
   panelToggle.addEventListener('click', () => {
     const collapsed = sidePanel.classList.toggle('collapsed');
     panelToggle.innerHTML = collapsed ? '&#x25B6;' : '&#x25C0;';
     panelToggle.title = collapsed ? 'Show side panel' : 'Hide side panel';
+    updateLayoutOffsetVar();
+    debouncedSave();
   });
 }
 
 // --- Side panel resize ---
 const panelResize = document.getElementById('panel-resize') as HTMLDivElement;
-const MODE_BAR_WIDTH = 40;
 
 if (panelResize && sidePanel) {
   let resizing = false;
@@ -58,8 +92,10 @@ if (panelResize && sidePanel) {
     if (!resizing) return;
     const newWidth = Math.max(140, Math.min(400, e.clientX - MODE_BAR_WIDTH));
     sidePanel.style.width = newWidth + 'px';
+    updateLayoutOffsetVar();
   });
   window.addEventListener('pointerup', () => {
+    if (resizing) debouncedSave();
     resizing = false;
     panelResize.classList.remove('dragging');
   });
@@ -203,22 +239,39 @@ if (textToggle) {
   });
 }
 
+// --- Help overlay ---
+const helpOverlay = document.getElementById('help-overlay');
+const helpBtn = document.getElementById('help-btn');
+const helpClose = document.getElementById('help-close');
+function showHelp() { helpOverlay?.classList.remove('hidden'); }
+function hideHelp() { helpOverlay?.classList.add('hidden'); }
+helpBtn?.addEventListener('click', showHelp);
+helpClose?.addEventListener('click', hideHelp);
+helpOverlay?.addEventListener('click', (e) => { if (e.target === helpOverlay) hideHelp(); });
+
 // --- Keyboard controls ---
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+  // Skip while IME (e.g. Korean Hangul) is composing — those keypresses belong to the IME.
+  if (e.isComposing || e.keyCode === 229) return;
+  if (e.code === 'Slash' && e.shiftKey) { showHelp(); e.preventDefault(); return; }
   const step = e.shiftKey ? 1 : getStepAngle();
-  switch (e.key) {
-    case 'ArrowUp':    renderer.rotateCamera(step,  'x'); e.preventDefault(); break;
-    case 'ArrowDown':  renderer.rotateCamera(-step, 'x'); e.preventDefault(); break;
-    case 'ArrowLeft':  renderer.rotateCamera(step,  'y'); e.preventDefault(); break;
-    case 'ArrowRight': renderer.rotateCamera(-step, 'y'); e.preventDefault(); break;
-    case '+': case '=': renderer.zoom(1 - getStepZoom()); e.preventDefault(); break;
-    case '-':           renderer.zoom(1 + getStepZoom()); e.preventDefault(); break;
+  // Use e.code where possible so Shift-modified / IME-mapped keys still register.
+  switch (e.code) {
+    case 'ArrowUp':      case 'KeyK': renderer.rotateCamera(step,  'x'); e.preventDefault(); return;
+    case 'ArrowDown':    case 'KeyJ': renderer.rotateCamera(-step, 'x'); e.preventDefault(); return;
+    case 'ArrowLeft':    case 'KeyH': renderer.rotateCamera(step,  'y'); e.preventDefault(); return;
+    case 'ArrowRight':   case 'KeyL': renderer.rotateCamera(-step, 'y'); e.preventDefault(); return;
+    case 'BracketLeft':  renderer.rotateCamera(-step, 'z'); e.preventDefault(); return;
+    case 'BracketRight': renderer.rotateCamera(step,  'z'); e.preventDefault(); return;
+    case 'Minus':        renderer.zoom(1 + getStepZoom()); e.preventDefault(); return;
+    case 'Equal':        renderer.zoom(1 - getStepZoom()); e.preventDefault(); return;
     case 'Escape':
+      if (helpOverlay && !helpOverlay.classList.contains('hidden')) { hideHelp(); return; }
       renderer.clearSelection();
       renderer.clearMeasurements();
       tooltip.style.display = 'none';
-      break;
+      return;
   }
 });
 
@@ -253,14 +306,47 @@ new MutationObserver(() => renderer.updateTheme())
   .observe(document.body, { attributes: true, attributeFilter: ['class', 'data-vscode-theme-kind'] });
 
 // --- State persistence ---
-function saveState() { vscode.setState(renderer.getState()); }
-const debouncedSave = debounce(saveState, 500);
+type PersistedState = ReturnType<typeof renderer.getState> & {
+  layoutMode?: LayoutMode;
+  panelCollapsed?: boolean;
+  panelWidth?: number;
+  stepAngle?: number;
+  stepZoom?: number;
+};
+function saveState() {
+  const s = renderer.getState() as PersistedState;
+  s.layoutMode = layoutMode;
+  s.panelCollapsed = sidePanel.classList.contains('collapsed');
+  s.panelWidth = sidePanel.getBoundingClientRect().width;
+  s.stepAngle = parseFloat(stepAngleInput?.value) || 15;
+  s.stepZoom = parseFloat(stepZoomInput?.value) || 10;
+  vscode.setState(s);
+}
+const debouncedSave = debounce(saveState, 300);
 window.addEventListener('pointerup', debouncedSave);
 window.addEventListener('wheel', debouncedSave);
+[scA, scB, scC, styleSelect, stepAngleInput, stepZoomInput,
+  bondsCheck, labelsCheck, polyCheck, boundaryCheck, celldashCheck, axisSizeSlider]
+  .forEach((el) => el?.addEventListener('change', debouncedSave));
+cameraBtn?.addEventListener('click', debouncedSave);
+paletteBtn?.addEventListener('click', debouncedSave);
 
-const savedState = vscode.getState() as ReturnType<typeof renderer.getState> | null;
-if (savedState) {
+const savedState = vscode.getState() as PersistedState | null;
+if (savedState && savedState.schemaVersion === 1) {
   renderer.restoreState(savedState);
+  if (savedState.layoutMode === 'offset' || savedState.layoutMode === 'overlay') {
+    layoutMode = savedState.layoutMode;
+    applyLayoutMode(layoutMode);
+  }
+  if (savedState.panelCollapsed) {
+    sidePanel.classList.add('collapsed');
+    if (panelToggle) { panelToggle.innerHTML = '&#x25B6;'; panelToggle.title = 'Show side panel'; }
+    updateLayoutOffsetVar();
+  }
+  if (typeof savedState.panelWidth === 'number' && savedState.panelWidth >= 140) {
+    sidePanel.style.width = savedState.panelWidth + 'px';
+    updateLayoutOffsetVar();
+  }
   if (scA && savedState.supercell) {
     scA.value = String(savedState.supercell[0]);
     scB.value = String(savedState.supercell[1]);
@@ -276,6 +362,14 @@ if (savedState) {
     paletteBtn.title = savedState.colorPalette === 'dark' ? 'Color palette: Dark' : 'Color palette: Light';
     paletteBtn.classList.toggle('active', savedState.colorPalette === 'dark');
   }
+  if (bondsCheck) bondsCheck.checked = savedState.showBonds;
+  if (labelsCheck) labelsCheck.checked = savedState.showLabels;
+  if (polyCheck) polyCheck.checked = !!savedState.showPolyhedra;
+  if (boundaryCheck) boundaryCheck.checked = savedState.showBoundaryAtoms !== false;
+  if (celldashCheck) celldashCheck.checked = savedState.showCellDash !== false;
+  if (axisSizeSlider && typeof savedState.axisIndicatorSize === 'number') axisSizeSlider.value = String(savedState.axisIndicatorSize);
+  if (stepAngleInput && typeof savedState.stepAngle === 'number') stepAngleInput.value = String(savedState.stepAngle);
+  if (stepZoomInput && typeof savedState.stepZoom === 'number') stepZoomInput.value = String(savedState.stepZoom);
 }
 
 function debounce(fn: () => void, ms: number): () => void {
@@ -335,6 +429,28 @@ function buildAtomPropsUI() {
     row.append(vis, label, slider, colorInput);
     atomsProps.appendChild(row);
   }
+}
+
+function updateBondSkipHint() {
+  const hint = document.getElementById('bond-skip-hint');
+  const msg = document.getElementById('bond-skip-msg');
+  const btn = document.getElementById('bond-force-btn') as HTMLButtonElement | null;
+  if (!hint || !msg || !btn) return;
+  const info = renderer.getBondSkipInfo();
+  if (!info.skipped) { hint.classList.add('hidden'); return; }
+  hint.classList.remove('hidden');
+  msg.textContent = `\u26A0 Bond detection skipped \u2014 ${info.atomCount} atoms exceed the ${info.limit} limit. Estimated: ${info.estimateMs} ms.`;
+  btn.onclick = () => {
+    btn.disabled = true;
+    btn.textContent = 'Computing\u2026';
+    requestAnimationFrame(() => {
+      renderer.setForceBonds(true);
+      btn.disabled = false;
+      btn.textContent = 'Compute anyway';
+      updateBondSkipHint();
+      buildBondPropsUI();
+    });
+  };
 }
 
 function buildBondPropsUI() {
@@ -397,6 +513,7 @@ window.addEventListener('message', (event) => {
       }
       buildAtomPropsUI();
       buildBondPropsUI();
+      updateBondSkipHint();
       break;
     }
     case 'resetCamera': renderer.resetCamera(); break;
