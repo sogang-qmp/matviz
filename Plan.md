@@ -175,15 +175,17 @@ Tracked separately so individual items can slot into any version patch without r
 
 | Area | Item | File:line | Proposed slot |
 |------|------|-----------|----------------|
-| Renderer | Redundant condition on negative isosurface branch — collapse `if (isoLevel > 0)` duplicate into one block calling marching cubes twice | `src/webview/renderer.ts:492, 510` | v0.14.7 (with AxisIndicator extraction) |
-| Renderer | Split `renderer.ts` (2019 LOC) further — `BondRenderer`, `MaterialRegistry` after AxisIndicator | `src/webview/renderer.ts` | v0.15 prep |
+| Renderer | Redundant condition on negative isosurface branch — collapse `if (isoLevel > 0)` duplicate into one block calling marching cubes twice | `src/webview/renderer.ts:525, 543` | any patch |
 | Parsers | Degenerate-lattice NaN guards (γ=0/180, a=b=c=0) | `src/parsers/cifParser.ts:366`, `pdbParser.ts:66` | v0.16 (extended crystallography touches these anyway) |
 | Parsers | XYZ numeric atomic-number fallback returns `'X'` — should call `getElementByNumber` like XSF | `src/parsers/xyzParser.ts:47-52` | any patch |
-| Parsers | QE parser silently returns default 10×10×10 lattice on parse failure — should throw so 13.1.2 error boundary triggers | `src/parsers/qeParser.ts:85-86` | v0.13.1 (helps 13.1.2/13.1.3) |
 | Parsers | Auto-detect CIF via `content.includes('_cell_length_a')` — naive, gated only by prior filename checks | `src/parsers/index.ts:61` | low; keep noted |
-| Parsers | Dead branch: aims check in `.in`-or-`.out` block, but `.out` short-circuits earlier | `src/parsers/index.ts:41` | trivial cleanup |
 | Shared | Duplicate `BOHR_TO_ANG` constant | `src/parsers/cubeParser.ts:4`, `qeParser.ts:3` | trivial cleanup |
-| Renderer | Axis label `CanvasTexture` (line 889) not pushed to `this.textures` | `src/webview/renderer.ts:889` | covered by 14.7 |
+
+**Resolved since the registry was opened** (audit trail):
+- QE parser silent 10×10×10 default → throws on empty parse. Shipped v0.13.1 (`qeParser.ts:85–90`).
+- Axis label `CanvasTexture` texture leak → component extracted to `AxisIndicator` with `textures.push(tex)` discipline. Shipped v0.14.0 (`src/webview/axisIndicator.ts:78`).
+- `index.ts` dead aims branch → refactored so `.out/.pw/.stdout/.stdin` dispatches to QE in a separate block from `.in` → FHI-aims. No more overlap.
+- `renderer.ts` split — `BondRenderer` extraction. Shipped v0.15.0 (`src/webview/bondRenderer.ts`). `MaterialRegistry` still inline via `trackMat` — adequate, not module-extracted.
 
 ---
 
