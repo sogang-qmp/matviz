@@ -10,10 +10,12 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 - `InstancedMesh` for atoms, instanced cylinders for bonds — performance-critical
 - On-demand rendering (no continuous rAF loop)
 
-**Critical caveats**:
-- Webview CSP must remain strict (nonce-only scripts). Current CSP still allows `'unsafe-inline'` for styles — slated for removal in v0.13.1.
-- Element data is duplicated across **three** bundles (`parsers/elements.ts`, `webview/elements-data.ts`, and the inline table in `scripts/render.ts`) — currently drifted (see v0.13.1). Long-term fix: single source of truth.
-- Bond detection is O(N) via spatial hashing but skipped hard for >5000 atoms (no UI indication — v0.14 should surface this).
+**Critical caveats (current)**:
+- Webview CSP is nonce-only for scripts AND styles (`'unsafe-inline'` dropped in v0.13.1). Any new inline style must land as a utility class in `media/styles.css` instead.
+- Element data single source: `src/shared/elements-data.ts` (80 elements). Extension host and webview both import from here. `scripts/render.ts` deliberately inlines a **subset** because the HTML page must be self-contained for Puppeteer — keep colors/radii in sync manually when elements-data.ts changes (documented in CLAUDE.md).
+- Bond detection is O(N) via spatial hashing, hard-skipped for >5000 atoms. UI surfaces this with a "Bond detection skipped / Compute anyway" inline hint (v0.14.0).
+- Custom editor is `CustomReadonlyEditorProvider<CrystalDocument>` — writing back to the file requires moving to the editable variant, which affects v0.18.1 (split-pane) design.
+- Impostor rendering tone does not exactly match the Phong-material path despite `RECIPROCAL_PI` + `linearToSRGB` alignment (shipped v0.15.0 known issue). Targeted for v0.15.1.
 
 ---
 
@@ -34,6 +36,9 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 | v0.11 | UI overhaul: dark/light palette, rotation sensitivity fix, clipping fix |
 | v0.12 | Rendering fixes: boundary wrap, stick style, bond defaults, adaptive top-bar, collapsible side panel, canvas sizing |
 | v0.13 | Headless CLI renderer (Puppeteer + SwiftShader), Claude `matviz-render` skill; XSF/CHGCAR isosurface axis-order hotfix (Fortran→C layout) |
+| v0.13.1 | Hardening pass: shared element data (80 elements, lanthanide fill), editor parse-error boundary with "Open as Text" fallback, narrowed `.out/.in` editor priority, CSP drops `'unsafe-inline'`, QE parser throws on empty, material registry disposes inline allocations, CLI renderer browser `try/finally` |
+| v0.14 | UX polish: sidebar layout modes (offset default, overlay preserved), CSS-container-query responsive toolbar, keyboard shortcut modal (`?`), bond-skip hint with "Compute anyway" (>5000 atoms), persisted state schema v1 (layout/panel/visibility/element & bond overrides/iso/axis), AxisIndicator extraction, 16k-atom diamond stress fixture |
+| v0.15 | Advanced rendering: sphere + cylinder impostors (billboard + ray intersection + `gl_FragDepth`), chunked InstancedMesh frustum culling (spatial binning per element), hybrid GPU picking (1×1 render target, N≥5000 threshold), BondRenderer extraction, angle/dihedral measurement dashed outlines. **WebGPU backend evaluation rejected** (cost/benefit). Known issue: impostor path slightly brighter than Phong (tracked for v0.15.1) |
 
 ---
 
@@ -59,7 +64,7 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 
 ---
 
-## v0.14 — UX polish
+## v0.14 — UX polish ✅ shipped 2026-04-17
 
 **Goal**: Improve daily-use ergonomics — responsive layout, side panel behavior, toolbar discoverability.
 
@@ -77,20 +82,49 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 
 ---
 
-## v0.15 — Advanced rendering
+## v0.15 — Advanced rendering ✅ shipped 2026-04-18
 
 **Goal**: GPU-efficient rendering for large structures (>10k atoms).
 
 | # | Feature | Success criterion |
 |---|---------|-------------------|
-| 15.1 | Sphere impostors (billboard + fragment shader) | Pixel-perfect spheres, triangle count reduced 10x vs geometry spheres |
-| 15.2 | GPU-accelerated picking | Picking <5ms for 50k atoms |
-| 15.3 | Frustum culling for instanced meshes | No rendering of off-screen atoms |
+| 15.0 | `BondRenderer` extraction from `renderer.ts` | Bond lifecycle (geometry, materials, instanced attrs) owned by standalone module; disposable independently |
+| 15.1 | Sphere impostors (billboard + fragment shader + `gl_FragDepth`) | Pixel-perfect spheres, triangle count reduced ~10× vs geometry spheres |
+| 15.2 | GPU-accelerated picking (1×1 render target, `camera.setViewOffset`, hybrid threshold N≥5000) | Picking <5ms for 50k atoms; below threshold, CPU raycaster path preserved |
+| 15.3 | Frustum culling for instanced meshes (chunked InstancedMesh via spatial binning per element) | Off-screen chunks skipped; no per-instance CPU culling cost |
 | 15.4 | WebGPU backend evaluation ❌ rejected | 2026-04-18 cost/benefit review — GLSL shaders would need TSL port, WebGL2 path already optimized, CLI renderer tied to SwiftShader (WebGL2 only). Revisit when 50k+ structures actually bottleneck on WebGL2 or compute-shader redesign enters scope (v0.17+). |
+| 15.5 | Cylinder impostor for bonds (bicolor split at midpoint, ray-cylinder intersection, `gl_FragDepth`) | Bonds render without tessellated cylinders; parity with BondRenderer geometry path |
 
-**Decision gate after 15.4**: ❌ **Rejected 2026-04-18** (without prototyping). Stay WebGL2. Reasons and revisit conditions in `plans/v0.15_advanced-rendering_impl.md` section 15.4.
+**Decision gate after 15.4**: ❌ **Rejected 2026-04-18** (without prototyping). Stay WebGL2. Reasons and revisit conditions in `plans/archives/v0.15_advanced-rendering_impl.md` section 15.4.
 
-**Exit criterion**: 50k-atom structure renders at 30fps during rotation.
+**Exit criterion**: 50k-atom structure renders at 30fps during rotation. ⚠ Not explicitly benchmarked on 50k fixture — verified qualitatively on 16k-atom diamond stress fixture. Formal measurement tracked under test infrastructure (see below).
+
+**Known issue (deferred to v0.15.1)**: Impostor path renders slightly brighter/more saturated than Phong path. Suspected tone/sRGB mapping mismatch in fragment output (impostor writes linear, Phong pipeline applies tone map).
+
+---
+
+## v0.15.1 — Impostor color polish + visual regression harness (proposed patch)
+
+**Goal**: Fix impostor vs Phong tone/saturation drift, and land the render-snapshot harness that makes this (and every future rendering change) objectively measurable rather than eyeballed. Bundling avoids rebuilding the same harness at v0.16.
+
+**Root-cause hypothesis** (to be confirmed by 15.1.1): impostor fragment shaders emit linear color without applying the active `toneMapping` or sRGB output-colorspace conversion, so `WebGLRenderer` (outputColorSpace = sRGB) applies the sRGB encode on top, producing a brighter/more saturated result than the Phong path which already runs the standard tone/colorspace chunks.
+
+| # | Feature | Success criterion |
+|---|---------|-------------------|
+| 15.1.0 | Visual-regression harness via CLI renderer | `--impostor on\|off` flag on `scripts/render.ts`; `scripts/compare-impostor.ts` renders each fixture twice and runs `pixelmatch` → prints ΔRGB histogram (max / mean / p95) and emits PNG diff; CI-friendly exit code |
+| 15.1.1 | Diagnose mismatch using the harness | Log current `outputColorSpace`, `toneMapping`, and impostor-frag output space; confirm whether Phong and impostor share tone/colorspace chunks. Baseline ΔRGB numbers recorded before fix |
+| 15.1.2 | Apply matching tone/colorspace in sphere + cylinder impostor shaders | Add `#include <tonemapping_fragment>` and `#include <colorspace_fragment>` (Three.js 0.170 chunks) — or equivalent manual `LinearTosRGB` + active tone map — to sphere + cylinder fragment shaders |
+| 15.1.3 | Wire harness into `npm test` (or `npm run test:visual`) + fixtures | Fixtures committed under `test/visual/impostor-parity/fixtures/` (NaCl, silicon 2×2×2, 16k diamond, and one multi-element for color-spectrum coverage); diffs go to `test/visual/impostor-parity/diff/` and are `.gitignore`d |
+
+**Fixed scene controls**: identical HTML template, camera pose, palette, lighting, tone map, atoms-and-bonds on, selection/measurement off. The only toggle between the two renders is impostor on/off. No RNG in the render path.
+
+**Scope guardrail**: No new rendering features. If diagnosis uncovers a structural fix (e.g. lighting model divergence between Phong and impostor), stop and defer to v0.16 kickoff instead of expanding v0.15.1.
+
+**Exit criterion**: For every fixture, **p95 ΔRGB < 2** and **mean ΔRGB < 0.5** (0–255 scale). Eyeball check is a sanity pass on top, not the gate.
+
+**Deliverables fold-in**: supersedes the "render snapshot regression" item in the Test infrastructure section and the "impostor vs Phong tone/sRGB mismatch" entry in the tech-debt registry.
+
+**Estimated effort**: ~1.5 days — majority in 15.1.0 harness work, which is reused for all later rendering changes (v0.16 thermal ellipsoids, v0.17 trajectory playback).
 
 ---
 
@@ -100,12 +134,22 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 
 | # | Feature | Success criterion |
 |---|---------|-------------------|
-| 16.1 | Thermal ellipsoids (anisotropic displacement from CIF) | Ellipsoids match VESTA for reference structure |
-| 16.2 | Partial occupancy display | Pie-chart spheres or transparency for mixed sites |
-| 16.3 | Magnetic moment vectors | Arrows on atoms, correct direction and relative magnitude |
-| 16.4 | Crystal morphology (external shape from Miller indices) | Wulff construction renders correctly for cubic example |
+| 16.1 | Thermal ellipsoids (anisotropic displacement from CIF `_atom_site_aniso_U_*` / `_atom_site_aniso_B_*`) | Ellipsoids match VESTA for reference structure (e.g. calcite, anorthite); probability contour configurable (50%/90%) |
+| 16.2 | Partial occupancy display (parse `_atom_site_occupancy`; render as sectored sphere or weighted transparency) | Mixed-occupancy sites render at correct occupancy ratio; toggle between pie-chart and transparency modes |
+| 16.3 | Magnetic moment vectors (parse VASP `MAGMOM` / CIF `_atom_site_moment`) | Arrows on atoms, length ∝ magnitude, direction correct; toggle on/off; colormap by magnitude |
+| 16.4 | Crystal morphology (external shape from Miller indices) | Wulff construction renders correctly for cubic example (Au fcc); per-face energy configurable |
 
-**Exit criterion**: All features toggle independently without affecting base rendering.
+**Open questions**:
+- CIF `_atom_site_aniso_*` parsing requires extending `cifParser.ts` — currently drops non-position site columns. Budget: ~1 day for parser + data flow changes.
+- Thermal ellipsoid geometry: reuse InstancedMesh (scale-per-axis via per-instance matrix) vs per-atom `Mesh` with Eigen decomposition. Default: InstancedMesh with full 4×4 matrix per instance (no new shader).
+- Partial occupancy: VESTA uses sectored spheres. This requires a custom shader or multi-material mesh. Alternative: stacked transparent spheres (simpler but worse anti-aliasing).
+- Magnetic moment parsing overlaps with v0.17 multi-frame (MAGMOM can vary per frame). Decide scope boundary at 16.3 kickoff.
+
+**Dependencies**:
+- Element data layer is stable post-v0.13.1; no changes needed.
+- Impostor path (v0.15) must absorb new per-instance attributes cleanly — verify before starting 16.1.
+
+**Exit criterion**: All features toggle independently without affecting base rendering; reference structures visually match VESTA screenshots.
 
 ---
 
@@ -115,11 +159,21 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 
 | # | Feature | Success criterion |
 |---|---------|-------------------|
-| 17.1 | MD trajectory playback (multi-frame XSF, XDATCAR) | Smooth playback at 30fps, scrub slider, play/pause |
+| 17.1 | MD trajectory playback (multi-frame XSF — AXSF; XDATCAR; extended XYZ) | Smooth playback at 30fps for N=1k atoms × 1000 frames; scrub slider, play/pause, frame number display |
 | 17.2 | Multi-phase overlay | Two structures rendered simultaneously with offset/transparency |
-| 17.3 | Structure comparison mode | Side-by-side or overlay with difference highlighting |
+| 17.3 | Structure comparison mode | Side-by-side or overlay with difference highlighting (displacement vectors between paired atoms) |
 
-**Exit criterion**: 1000-frame XDATCAR plays without memory leak.
+**Scope decisions**:
+- **Multi-frame parser**: single `CrystalStructure` → `CrystalTrajectory { frames: CrystalStructure[], lattice?: 'fixed' | 'per-frame' }`. Parsers emit trajectory when multi-frame detected; single-frame wraps into 1-frame trajectory for uniformity.
+- **Interpolation policy**: no inter-frame interpolation in v0.17 (frame-stepped playback only). Linear interpolation deferred — requires atom-to-atom identity mapping which is non-trivial for non-fixed cell.
+- **Memory budget**: 1000 frames × N atoms × (position 12B + species 1B) = ~13 MB for N=1k; ~130 MB for N=10k. Keep raw frames in memory for N×frames ≤ 10⁷; otherwise stream from extension host via `postMessage` windowing (future: v0.17.1).
+- **Bond recomputation**: off by default during playback (O(N) per frame too expensive). Provide "recompute bonds every frame" toggle with explicit cost warning.
+
+**Open questions**:
+- XDATCAR lattice handling: fixed-cell NVE vs variable-cell NPT. Default: detect "Direct configuration=" variable-lattice form and re-emit per-frame lattice.
+- Extended XYZ property line (`Lattice="..." Properties=...`) parsing scope — tracked under format roadmap below.
+
+**Exit criterion**: 1000-frame XDATCAR plays without memory leak (heap stable across 3 playback loops); scrubbing is frame-accurate.
 
 ---
 
@@ -129,12 +183,18 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 
 | # | Feature | Success criterion |
 |---|---------|-------------------|
-| 18.1 | Split-pane: text editor + 3D view | Edit CIF text, 3D view updates live |
+| 18.1 | Split-pane: text editor + 3D view | Edit CIF text, 3D view updates live (debounced reparse on save) |
 | 18.2 | VSCode settings namespace (`matviz.*`) | All defaults configurable; settings UI works |
 | 18.3 | Undo/redo for property changes | Ctrl+Z restores previous colors/radii/cutoffs |
 | 18.4 | Marketplace publishing | Extension installable from VSCode marketplace |
 
-**Exit criterion**: Published on marketplace with all documented features working.
+**Architectural dependency — 18.1 blocker**: Current editor is `CustomReadonlyEditorProvider<CrystalDocument>`. Split-pane live edit requires migration to `CustomTextEditorProvider` (so text buffer and webview share a `TextDocument`) OR a companion text editor that posts change events into the read-only viewer. Decision gate at 18.1 kickoff — migration is ~2 days work and affects document lifecycle, dirty state, save interaction.
+
+**Scope decisions**:
+- **18.2 settings schema**: `matviz.defaults.{style,palette,showBonds,showBoundary,bondCutoff,isoLevel,cameraMode}`. Per-workspace overrides. Migration from current `localStorage` persistence schema v1 → settings-backed: localStorage wins for session, settings provide defaults.
+- **18.3 undo stack**: scoped to property-panel changes (colors, radii, cutoffs, visibility). Does NOT include camera or selection. Separate stack from text-editor undo.
+
+**Exit criterion**: Published on marketplace with all documented features working; `matviz.*` settings documented in README.
 
 ---
 
@@ -148,10 +208,40 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 ## Verification strategy
 
 - **v0.14**: Manual testing at multiple editor widths (400/800/1200/2000px) across light/dark themes.
-- **v0.15**: Performance benchmarks with `renderer.info` and `performance.now()` on 10k/50k atom structures.
+- **v0.15**: Performance benchmarks with `renderer.info` and `performance.now()` on 10k/50k atom structures. ⚠ Formal 50k measurement not yet captured — see test infrastructure.
 - **v0.16**: Visual comparison with VESTA screenshots for reference structures.
 - **v0.17**: Memory profiling during 1000-frame playback; leak detection via heap snapshots.
 - **v0.18**: VSCode marketplace validation checklist; end-to-end install test on clean machine.
+
+---
+
+## Format support roadmap
+
+Additional formats beyond the current core (CIF, POSCAR/CONTCAR/VASP, XSF/AXSF, XYZ, PDB, Cube, CHGCAR, QE, FHI-aims `geometry.in`). Not version-locked — slot opportunistically.
+
+| Format | Scope | Notes |
+|--------|-------|-------|
+| LAMMPS data (`*.data`) | Atomic + charge style parse; bond/angle/dihedral sections ignored initially | Atom-types → element mapping is user-supplied (common pain point in VESTA). Consider auto-inference fallback. |
+| LAMMPS dump (`*.lammpstrj`, `*.dump`) | Multi-frame trajectory | Blocked on v0.17 `CrystalTrajectory` shape. |
+| GROMACS (`*.gro`) | Single-frame + residue info | Residue labels ignored for now; retain element-from-name inference. |
+| Extended XYZ | `Lattice="..." Properties=...` property line | Supersedes current XYZ for ASE-produced files. |
+| MOL2 / SDF | Small-molecule formats | Bond order info could feed bond-style rendering; out of scope until requested. |
+| Phonopy FORCE_CONSTANTS / `band.yaml` | Phonon eigenvector arrows | Tied to v0.16.3 direction/magnitude UI. Defer until v0.16 ships. |
+
+---
+
+## Test infrastructure
+
+Currently: manual inspection of `test/fixtures/`. Gaps surfaced during v0.15 review:
+
+| Item | Why | Proposed slot |
+|------|-----|---------------|
+| Render snapshot regression (CLI renderer → PNG → per-pixel diff) | v0.15 impostor color drift would have been caught automatically; every rendering change is currently visually un-audited | v0.15.1 or v0.16 kickoff |
+| TypeScript strict mode (`"strict": true` + targeted `noUncheckedIndexedAccess`) | Parser code has implicit-any hotspots; would have caught the XYZ numeric-element regression in tech-debt | v0.16 (bundle with parser work) |
+| Bundle size budget — CI gate on `dist/webview.js` size | Three.js + shaders currently ~750 KB; impostor shaders added ~8 KB, acceptable but unchecked | any patch |
+| 50k-atom performance fixture + `performance.now()` harness | v0.15 exit criterion unverified | v0.15.1 |
+| Fixture coverage matrix — map parser × structure shape (anisotropic lattice, partial occupancy, moments) | v0.13.0 axis-order bug escaped 128³ cubic fixture | v0.16 |
+| Headless CLI smoke test in CI | Regressions in Puppeteer/SwiftShader setup silently break the skill | any patch |
 
 ---
 
@@ -162,10 +252,12 @@ VESTA-inspired crystal structure viewer as a VSCode extension. Goal: provide com
 | Draw calls | <100 per frame | `renderer.info.render.calls` |
 | Idle GPU | 0 frames | Performance tab: no rAF activity |
 | Bond detection | O(N), <200ms for 10k atoms | `performance.now()` |
-| Atom picking | <16ms | `performance.now()` |
+| Atom picking (CPU raycaster, N<5000) | <16ms | `performance.now()` |
+| Atom picking (GPU, N≥5000) | <5ms target for 50k | ⚠ unmeasured — formal harness in v0.15.1 test infrastructure |
 | Isosurface 64³ | <500ms | `performance.now()` |
 | Memory (no volumetric) | <100MB | DevTools heap |
 | Style switch | <50ms, no bond re-detection | Visual + timing |
+| 50k atoms @ 30fps rotation | v0.15 exit criterion | ⚠ unmeasured on 50k fixture; qualitatively ok at 16k |
 
 ---
 
@@ -180,6 +272,9 @@ Tracked separately so individual items can slot into any version patch without r
 | Parsers | XYZ numeric atomic-number fallback returns `'X'` — should call `getElementByNumber` like XSF | `src/parsers/xyzParser.ts:47-52` | any patch |
 | Parsers | Auto-detect CIF via `content.includes('_cell_length_a')` — naive, gated only by prior filename checks | `src/parsers/index.ts:61` | low; keep noted |
 | Shared | Duplicate `BOHR_TO_ANG` constant | `src/parsers/cubeParser.ts:4`, `qeParser.ts:3` | trivial cleanup |
+| Renderer | Impostor vs Phong tone/sRGB mismatch — impostor path brighter | `src/webview/renderer.ts` sphere/cylinder impostor frag shaders | v0.15.1 (dedicated) |
+| Renderer | `AtomPickingRenderer` render-target lifecycle — NOT disposed in `disposeResources()` because that runs on every `rebuild()`; lives for `CrystalRenderer` lifetime. Needs a separate terminal-dispose hook | `src/webview/picking.ts`, `renderer.ts` dispose path | v0.15.1 or v0.16 cleanup |
+| Renderer | `CylinderImpostorMesh.raycast` is a no-op — bond picking unavailable with cylinder impostors on | `src/webview/bondRenderer.ts` (impostor path) | v0.16+ (when bond picking is requested) |
 
 **Resolved since the registry was opened** (audit trail):
 - QE parser silent 10×10×10 default → throws on empty parse. Shipped v0.13.1 (`qeParser.ts:85–90`).
