@@ -95,6 +95,22 @@ const magmomTestConfig = {
   sourcemap: false,
 };
 
+// Wulff polytope test (16.4). Pure geometry sanity (no rendering): cube,
+// corner-cut, Au cuboctahedron via planesFromMillerIndices.
+const wulffTestConfig = {
+  entryPoints: ['scripts/test-wulff.ts'],
+  bundle: true,
+  outfile: 'dist/test-wulff.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  sourcemap: false,
+  // ConvexGeometry/Three pulled in via wulff.ts. external: 'three' — Node
+  // can resolve it from node_modules. But Three Examples uses some browser
+  // APIs that fail in Node (window, etc.) — we avoid this by NOT instantiating
+  // BufferGeometry-rendering paths; ConvexGeometry's QuickHull is pure math.
+};
+
 if (watch) {
   const ctx1 = await esbuild.context(extensionConfig);
   const ctx2 = await esbuild.context(webviewConfig);
@@ -110,5 +126,6 @@ if (watch) {
   await esbuild.build(parserTestConfig);
   await esbuild.build(symEigenTestConfig);
   await esbuild.build(magmomTestConfig);
+  await esbuild.build(wulffTestConfig);
   console.log('Build complete.');
 }

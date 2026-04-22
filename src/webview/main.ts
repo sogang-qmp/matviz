@@ -647,6 +647,16 @@ window.addEventListener('message', (event) => {
     case 'viewNormalToPlane': renderer.viewNormalToPlane(msg.hkl); break;
     case 'addLatticePlane': renderer.addLatticePlane(msg.hkl, msg.distance); break;
     case 'clearLatticePlanes': renderer.clearLatticePlanes(); break;
+    case 'setWulff': {
+      try {
+        renderer.setWulff(msg.planes);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('Wulff construction failed:', e);
+      }
+      break;
+    }
+    case 'clearWulff': renderer.clearWulff(); break;
     case 'loadVolumetric': {
       renderer.loadVolumetric(msg.data);
       const isoSection = document.getElementById('iso-section')!;

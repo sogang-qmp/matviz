@@ -102,6 +102,36 @@ export function activate(context: vscode.ExtensionContext) {
       provider.exportStructure('poscar');
     })
   );
+
+  // 16.4 Wulff construction
+  context.subscriptions.push(
+    vscode.commands.registerCommand('matviz.showWulff', async () => {
+      const input = await vscode.window.showInputBox({
+        prompt: 'Enter Miller-index + surface-energy tuples (h,k,l,γ; …) separated by ";"',
+        placeHolder: '1,0,0,1.0; -1,0,0,1.0; 0,1,0,1.0; 0,-1,0,1.0; 0,0,1,1.0; 0,0,-1,1.0',
+        value: '1,0,0,1.0; -1,0,0,1.0; 0,1,0,1.0; 0,-1,0,1.0; 0,0,1,1.0; 0,0,-1,1.0',
+      });
+      if (!input) return;
+      const planes: Array<{ h: number; k: number; l: number; gamma: number }> = [];
+      for (const segment of input.split(';')) {
+        const tokens = segment.trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
+        if (tokens.length === 4) {
+          planes.push({ h: tokens[0], k: tokens[1], l: tokens[2], gamma: tokens[3] });
+        }
+      }
+      if (planes.length === 0) {
+        vscode.window.showErrorMessage('No valid (h,k,l,γ) tuples parsed.');
+        return;
+      }
+      provider.postMessageToActive({ type: 'setWulff', planes });
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('matviz.clearWulff', () => {
+      provider.postMessageToActive({ type: 'clearWulff' });
+    })
+  );
 }
 
 export function deactivate() {}

@@ -12,6 +12,7 @@ import { BondRenderer, type BondInfo } from './bondRenderer';
 import { SphereImpostorMesh, createImpostorMaterial } from './sphereImpostor';
 import { EllipsoidRenderer, type EllipsoidInstance, type ProbabilityContour } from './ellipsoidRenderer';
 import { MagneticArrowRenderer, type MagneticArrowInstance, type Colormap as MagColormap } from './magneticArrowRenderer';
+import { computeWulffGeometry, planesFromMillerIndices } from './wulff';
 import { AtomPickingRenderer } from './picking';
 import type { VolumetricData } from '../parsers/types';
 
@@ -95,6 +96,10 @@ export class CrystalRenderer {
   // magMom data.
   private magneticArrowRenderer = new MagneticArrowRenderer();
   private showMagneticMoments = false;
+
+  // 16.4 Wulff construction — command-palette driven overlay.
+  private wulffGroup = new THREE.Group();
+  private currentWulffPlanes: Array<{ h: number; k: number; l: number; gamma: number }> | null = null;
 
   // Per-element user overrides
   private elementColorOverrides = new Map<string, string>();
@@ -183,7 +188,7 @@ export class CrystalRenderer {
     dir2.position.set(-5, -5, -5);
     this.scene.add(ambient, dir1, dir2);
 
-    this.scene.add(this.atomGroup, this.bondRenderer.group, this.cellGroup, this.labelGroup, this.polyhedraGroup, this.measureGroup, this.planeGroup, this.isoGroup, this.ellipsoidRenderer.group, this.magneticArrowRenderer.group);
+    this.scene.add(this.atomGroup, this.bondRenderer.group, this.cellGroup, this.labelGroup, this.polyhedraGroup, this.measureGroup, this.planeGroup, this.isoGroup, this.ellipsoidRenderer.group, this.magneticArrowRenderer.group, this.wulffGroup);
     this.labelGroup.renderOrder = 999;
     this.labelGroup.visible = false;
     this.polyhedraGroup.visible = false;
@@ -344,6 +349,52 @@ export class CrystalRenderer {
    */
   hasMagneticMoments(): boolean {
     return !!this.structure?.magMom?.some(m => m[0] !== 0 || m[1] !== 0 || m[2] !== 0);
+  }
+
+  // 16.4 Wulff construction — command-palette entry. Caller provides
+  // (h, k, l, γ) tuples; renderer transforms via lattice basis and
+  // builds the polytope. Throws if planes don't bound a region.
+  setWulff(planes: Array<{ h: number; k: number; l: number; gamma: number }>): void {
+    this.clearWulff();
+    if (!this.structure || planes.length === 0) return;
+    const wulffPlanes = planesFromMillerIndices(planes, this.structure.lattice);
+    // Bounding-box fallback size: scale by max Wulff distance × 4 so the
+    // box never accidentally clips the user-defined polytope.
+    const maxDist = Math.max(...planes.map(p => p.gamma));
+    const boxSize = Math.max(maxDist * 4, 5);
+    const geo = computeWulffGeometry(wulffPlanes, boxSize);
+    this.geometries.push(geo);
+    const mat = new THREE.MeshPhongMaterial({
+      color: 0x4dabf7,
+      shininess: 60,
+      transparent: true,
+      opacity: 0.5,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    this.materials.push(mat);
+    const mesh = new THREE.Mesh(geo, mat);
+    // Wireframe edges for clarity
+    const edges = new THREE.EdgesGeometry(geo);
+    this.geometries.push(edges);
+    const edgeMat = new THREE.LineBasicMaterial({ color: 0x1971c2, linewidth: 2 });
+    this.materials.push(edgeMat);
+    const wireframe = new THREE.LineSegments(edges, edgeMat);
+    this.wulffGroup.add(mesh, wireframe);
+    this.currentWulffPlanes = planes.slice();
+    this.requestRender();
+  }
+
+  clearWulff(): void {
+    for (const child of [...this.wulffGroup.children]) {
+      this.wulffGroup.remove(child);
+    }
+    this.currentWulffPlanes = null;
+    this.requestRender();
+  }
+
+  hasWulff(): boolean {
+    return this.currentWulffPlanes !== null;
   }
 
   toggleLabels() {

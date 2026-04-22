@@ -12,7 +12,9 @@ export type ExtensionMessage =
   | { type: 'viewAlongDirection'; uvw: [number, number, number] }
   | { type: 'viewNormalToPlane'; hkl: [number, number, number] }
   | { type: 'addLatticePlane'; hkl: [number, number, number]; distance?: number }
-  | { type: 'clearLatticePlanes' };
+  | { type: 'clearLatticePlanes' }
+  | { type: 'setWulff'; planes: Array<{ h: number; k: number; l: number; gamma: number }> }
+  | { type: 'clearWulff' };
 
 export type WebviewMessage =
   | { type: 'ready' }
