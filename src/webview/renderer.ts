@@ -82,6 +82,12 @@ export class CrystalRenderer {
   private ellipsoidRenderer = new EllipsoidRenderer();
   private showEllipsoids = false;
 
+  // 16.2 partial occupancy — opt-in. Atoms with occupancy < 1.0 AND
+  // showPartialOccupancy=true render as individual transparent Phong meshes
+  // (per-site opacity preserved). Otherwise rendered as full atoms via the
+  // regular path (matches the pre-v0.16 behavior — no visual change off).
+  private showPartialOccupancy = false;
+
   // Per-element user overrides
   private elementColorOverrides = new Map<string, string>();
   private elementRadiusOverrides = new Map<string, number>();
@@ -288,6 +294,23 @@ export class CrystalRenderer {
    */
   hasThermalAniso(): boolean {
     return !!this.structure?.thermalAniso?.some(u => u !== null);
+  }
+
+  // 16.2 partial occupancy — toggle and helper.
+  setShowPartialOccupancy(enabled: boolean) {
+    if (enabled === this.showPartialOccupancy) return;
+    this.showPartialOccupancy = enabled;
+    if (this.structure) this.buildVisuals();
+  }
+
+  getShowPartialOccupancy(): boolean { return this.showPartialOccupancy; }
+
+  /**
+   * Whether the loaded structure has any partial-occupancy site.
+   * Used by the UI to enable/disable the "Partial occupancy" toggle.
+   */
+  hasPartialOccupancy(): boolean {
+    return !!this.structure?.occupancy?.some(o => o < 1.0 - 1e-6);
   }
 
   toggleLabels() {
@@ -743,6 +766,7 @@ export class CrystalRenderer {
     polyhedraCenters: string[];
     showEllipsoids: boolean;
     probabilityContour: ProbabilityContour;
+    showPartialOccupancy: boolean;
   } {
     const pos = this.activeCamera.position;
     const target = this.controls.target;
@@ -773,6 +797,7 @@ export class CrystalRenderer {
       polyhedraCenters: [...this.polyhedraCenters],
       showEllipsoids: this.showEllipsoids,
       probabilityContour: this.ellipsoidRenderer.getProbabilityContour(),
+      showPartialOccupancy: this.showPartialOccupancy,
     };
   }
 
@@ -819,6 +844,7 @@ export class CrystalRenderer {
     if (state.probabilityContour === 0.5 || state.probabilityContour === 0.9) {
       this.ellipsoidRenderer.setProbabilityContour(state.probabilityContour);
     }
+    if (typeof state.showPartialOccupancy === 'boolean') this.showPartialOccupancy = state.showPartialOccupancy;
 
     if (state.cameraMode !== this.cameraMode) {
       this.setCameraMode(state.cameraMode);
@@ -1752,9 +1778,27 @@ export class CrystalRenderer {
       }
     }
 
+    // 16.2 partial occupancy routing: pick out atoms with occupancy < 1.0
+    // (skipping those already routed to ellipsoid). Rendered later as
+    // individual transparent Phong meshes — preserves per-site opacity at
+    // the cost of one Mesh per partial atom (typically a small handful).
+    const partialIdxSet = new Set<number>();
+    const occupancy = this.structure?.occupancy;
+    if (this.showPartialOccupancy && occupancy && !style.startsWith('wire')) {
+      for (let i = 0; i < species.length; i++) {
+        if (ellipsoidIdxSet.has(i)) continue;
+        const unitIdx = this.expandedUnitCellIndex[i] ?? i;
+        const occ = occupancy[unitIdx];
+        if (occ === undefined || occ >= 1.0 - 1e-6) continue;
+        if (this.elementVisibility.get(species[i]) === false) continue;
+        partialIdxSet.add(i);
+      }
+    }
+
     const groups = new Map<string, number[]>();
     for (let i = 0; i < species.length; i++) {
       if (ellipsoidIdxSet.has(i)) continue;
+      if (partialIdxSet.has(i)) continue;
       const s = species[i];
       if (!groups.has(s)) groups.set(s, []);
       groups.get(s)!.push(i);
@@ -1856,6 +1900,59 @@ export class CrystalRenderer {
         bucket.push(idx);
       }
       for (const [, binIndices] of bins) emit(binIndices, element);
+    }
+
+    // 16.2 partial-occupancy render block — runs after the regular per-element
+    // emit. Each partial site gets its own Mesh (not InstancedMesh) so we can
+    // set the material's `opacity = occupancy[i]` per atom. Materials are
+    // cached within this rebuild by (element, opacity) to avoid leaking
+    // GPU resources for repeated values (typical CIFs have ≤ 3 distinct
+    // occupancy values per element). Materials are tracked for disposal in
+    // disposeResources.
+    if (partialIdxSet.size > 0 && occupancy) {
+      const partialSphereGeo = new THREE.SphereGeometry(1, 24, 16);
+      this.geometries.push(partialSphereGeo);
+      const matCache = new Map<string, THREE.MeshPhongMaterial>();
+      const dummy = new THREE.Object3D();
+      for (const i of partialIdxSet) {
+        const element = species[i];
+        const elData = getElement(element);
+        const color = this.getElementColor(element);
+        const customRadius = this.elementRadiusOverrides.get(element);
+        const unitIdx = this.expandedUnitCellIndex[i] ?? i;
+        const occ = occupancy[unitIdx];
+        let r: number;
+        switch (style) {
+          case 'space-filling': r = customRadius != null ? customRadius * 3 : elData.vdwRadius; break;
+          case 'stick': r = customRadius ?? 0.15; break;
+          default: r = customRadius ?? elData.displayRadius; break;
+        }
+        const matKey = `${color}_${occ.toFixed(3)}`;
+        let mat = matCache.get(matKey);
+        if (!mat) {
+          mat = new THREE.MeshPhongMaterial({
+            color: new THREE.Color(color),
+            shininess: 80,
+            transparent: true,
+            opacity: occ,
+            // Disable depth write so stacked partial atoms (Mg+Fe at the same
+            // site) blend without one occluding the other. Slight artifact:
+            // ordering with non-partial atoms isn't strictly back-to-front.
+            depthWrite: false,
+          });
+          this.materials.push(mat);
+          matCache.set(matKey, mat);
+        }
+        const mesh = new THREE.Mesh(partialSphereGeo, mat);
+        dummy.position.set(positions[i][0], positions[i][1], positions[i][2]);
+        dummy.scale.set(r, r, r);
+        dummy.updateMatrix();
+        mesh.matrixAutoUpdate = false;
+        mesh.matrix.copy(dummy.matrix);
+        // Render after opaque atoms to get correct alpha blending.
+        mesh.renderOrder = 1;
+        this.atomGroup.add(mesh);
+      }
     }
   }
 

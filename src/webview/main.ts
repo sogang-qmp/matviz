@@ -153,6 +153,22 @@ function updateEllipsoidsSectionVisibility() {
   }
 }
 
+// 16.2 Partial occupancy section visibility
+const partialOccCheck = document.getElementById('partial-occ-check') as HTMLInputElement;
+if (partialOccCheck) {
+  partialOccCheck.addEventListener('change', () => renderer.setShowPartialOccupancy(partialOccCheck.checked));
+}
+function updatePartialOccupancySectionVisibility() {
+  const section = document.getElementById('partial-occupancy-section');
+  if (!section) return;
+  if (renderer.hasPartialOccupancy()) {
+    section.classList.remove('hidden');
+    if (partialOccCheck) partialOccCheck.checked = renderer.getShowPartialOccupancy();
+  } else {
+    section.classList.add('hidden');
+  }
+}
+
 // Camera toggle
 const cameraBtn = document.getElementById('camera-toggle') as HTMLButtonElement;
 if (cameraBtn) {
@@ -363,7 +379,7 @@ window.addEventListener('pointerup', debouncedSave);
 window.addEventListener('wheel', debouncedSave);
 [scA, scB, scC, styleSelect, impostorCheck, stepAngleInput, stepZoomInput,
   bondsCheck, labelsCheck, polyCheck, boundaryCheck, celldashCheck, axisSizeSlider,
-  ellipsoidsCheck, ellipsoidContour50, ellipsoidContour90]
+  ellipsoidsCheck, ellipsoidContour50, ellipsoidContour90, partialOccCheck]
   .forEach((el) => el?.addEventListener('change', debouncedSave));
 cameraBtn?.addEventListener('click', debouncedSave);
 paletteBtn?.addEventListener('click', debouncedSave);
@@ -593,6 +609,7 @@ window.addEventListener('message', (event) => {
       updatePolyCentersVisibility();
       updateBondSkipHint();
       updateEllipsoidsSectionVisibility();
+      updatePartialOccupancySectionVisibility();
       break;
     }
     case 'resetCamera': renderer.resetCamera(); break;

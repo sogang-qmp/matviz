@@ -292,6 +292,12 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
         <label class="toggle"><input type="radio" name="ellipsoid-contour" value="0.9" id="ellipsoid-contour-90"><span>90%</span></label>
       </div>
     </div>
+    <div class="panel-section hidden" id="partial-occupancy-section">
+      <div class="panel-label" title="Sites with _atom_site_occupancy < 1 (mixed-occupancy)">Partial occupancy</div>
+      <div class="toggle-group">
+        <label class="toggle" title="Render partial-occupancy sites as transparent atoms with opacity = occupancy ratio (per-site preserved)"><input type="checkbox" id="partial-occ-check"><span>Show partial occupancy</span></label>
+      </div>
+    </div>
     <div class="panel-section">
       <div class="panel-label panel-label-toggle" id="atoms-toggle" title="Expand per-element color / radius / visibility overrides">Atoms &#x25B6;</div>
       <div id="atoms-props" class="props-list hidden"></div>

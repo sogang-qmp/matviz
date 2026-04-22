@@ -111,4 +111,29 @@ A 0 0 0
   pass(`tio2-rutile.cif: ${s.species.length} atoms after symmetry expansion (regression-free)`);
 }
 
-console.log('\nAll v0.16.1 (1/3) parser tests passed.');
+// ---- Test 5: partial occupancy parsing (v0.16.2) ----
+{
+  const cifPath = path.join(ROOT, 'test/fixtures/test-occupancy.cif');
+  const content = fs.readFileSync(cifPath, 'utf8');
+  const s = parseCif(content);
+  if (s.species.length !== 3) fail(`test-occupancy.cif: expected 3 atoms, got ${s.species.length}`);
+  if (!s.occupancy) fail('test-occupancy.cif: occupancy missing');
+  if (s.occupancy.length !== 3) fail(`occupancy length ${s.occupancy.length} != 3`);
+  if (!approx(s.occupancy[0], 0.7) || !approx(s.occupancy[1], 0.3) || !approx(s.occupancy[2], 1.0)) {
+    fail(`occupancy values mismatch: ${s.occupancy.join(',')}`);
+  }
+  pass(`test-occupancy.cif: occupancy=[${s.occupancy.join(', ')}] correctly parsed`);
+}
+
+// ---- Test 6: nacl.cif (no occupancy column) leaves field undefined ----
+{
+  const cifPath = path.join(ROOT, 'test/fixtures/nacl.cif');
+  const content = fs.readFileSync(cifPath, 'utf8');
+  const s = parseCif(content);
+  if (s.occupancy !== undefined) {
+    fail(`nacl.cif: occupancy should be undefined, got ${JSON.stringify(s.occupancy)}`);
+  }
+  pass(`nacl.cif: occupancy field omitted (no _atom_site_occupancy column)`);
+}
+
+console.log('\nAll v0.16.1+16.2 parser tests passed.');

@@ -167,6 +167,7 @@ export function parseCif(content: string): CrystalStructure {
   const cartXCol = colIdx(atomLoop, '_atom_site_Cartn_x');
   const cartYCol = colIdx(atomLoop, '_atom_site_Cartn_y');
   const cartZCol = colIdx(atomLoop, '_atom_site_Cartn_z');
+  const occCol = colIdx(atomLoop, '_atom_site_occupancy');
 
   const hasFractional = fracXCol >= 0 && fracYCol >= 0 && fracZCol >= 0;
   const hasCartesian = cartXCol >= 0 && cartYCol >= 0 && cartZCol >= 0;
@@ -174,6 +175,8 @@ export function parseCif(content: string): CrystalStructure {
   const asymSpecies: string[] = [];
   const asymLabels: string[] = [];
   const asymFractional: [number, number, number][] = [];
+  const asymOccupancy: number[] = [];
+  let anyPartialOccupancy = false;
 
   for (const row of atomLoop.rows) {
     let symbol = '';
@@ -187,9 +190,20 @@ export function parseCif(content: string): CrystalStructure {
     if (!symbol) continue;
     symbol = symbol.charAt(0).toUpperCase() + symbol.slice(1).toLowerCase();
 
+    // Occupancy: default 1.0 if column missing or unparseable.
+    let occ = 1.0;
+    if (occCol >= 0 && row[occCol]) {
+      const parsed = parseCifNumber(row[occCol]);
+      if (Number.isFinite(parsed) && parsed >= 0) {
+        occ = parsed;
+        if (occ < 1.0 - 1e-6) anyPartialOccupancy = true;
+      }
+    }
+
     if (hasFractional) {
       asymSpecies.push(symbol);
       asymLabels.push(label);
+      asymOccupancy.push(occ);
       asymFractional.push([
         parseCifNumber(row[fracXCol]),
         parseCifNumber(row[fracYCol]),
@@ -198,6 +212,7 @@ export function parseCif(content: string): CrystalStructure {
     } else if (hasCartesian) {
       asymSpecies.push(symbol);
       asymLabels.push(label);
+      asymOccupancy.push(occ);
       const x = parseCifNumber(row[cartXCol]);
       const y = parseCifNumber(row[cartYCol]);
       const z = parseCifNumber(row[cartZCol]);
@@ -259,6 +274,7 @@ export function parseCif(content: string): CrystalStructure {
   let species: string[];
   let positions: [number, number, number][];
   let thermalAniso: Array<Uij | null> | undefined;
+  let occupancy: number[] | undefined;
 
   if (symmetryOps.length > 0 && hasFractional) {
     const result = applySymmetryOps(asymSpecies, asymLabels, asymFractional, symmetryOps);
@@ -272,6 +288,13 @@ export function parseCif(content: string): CrystalStructure {
         const u = lbl ? anisoMap.get(lbl) : undefined;
         return u ? { ...u } : null;
       });
+    }
+    if (anyPartialOccupancy) {
+      // Build label → occupancy map, look up per parent label. Unknown
+      // labels default to 1.0 (full occupancy).
+      const occByLabel = new Map<string, number>();
+      for (let i = 0; i < asymLabels.length; i++) occByLabel.set(asymLabels[i], asymOccupancy[i]);
+      occupancy = result.parentLabels.map(lbl => occByLabel.get(lbl) ?? 1.0);
     }
   } else {
     species = asymSpecies;
@@ -290,6 +313,9 @@ export function parseCif(content: string): CrystalStructure {
         return u ? { ...u } : null;
       });
     }
+    if (anyPartialOccupancy) {
+      occupancy = [...asymOccupancy];
+    }
   }
 
   // Length invariant guard: if some species lack aniso, the array is still
@@ -306,6 +332,7 @@ export function parseCif(content: string): CrystalStructure {
     cellParams: { a, b, c, alpha, beta, gamma },
     symmetryOps: symmetryOps.length > 0 ? symmetryOps : undefined,
     ...(thermalAniso ? { thermalAniso } : {}),
+    ...(occupancy ? { occupancy } : {}),
   };
 }
 
