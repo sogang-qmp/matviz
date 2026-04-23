@@ -5,7 +5,7 @@ import { parseXsf, parseXsfTraj } from './xsfParser';
 import { parseXdatcar, parseXdatcarTraj } from './xdatcarParser';
 import { parseChgcar } from './chgcarParser';
 import { parseCube } from './cubeParser';
-import { parseXyz } from './xyzParser';
+import { parseXyz, parseXyzTraj } from './xyzParser';
 import { parsePdb } from './pdbParser';
 import { parseQE } from './qeParser';
 import { parseAims } from './aimsParser';
@@ -110,6 +110,11 @@ export function parseStructureFileTraj(content: string, filename: string): Parse
   // 17.1.2 — XDATCAR (VASP MD) is intrinsically multi-frame.
   if (lower === 'xdatcar') {
     return { trajectory: parseXdatcarTraj(content) };
+  }
+  // 17.1.3 — extended XYZ (ASE format). parseXyzTraj works for both
+  // single-frame plain XYZ and multi-frame ASE trajectories.
+  if (lower.endsWith('.xyz')) {
+    return { trajectory: parseXyzTraj(content) };
   }
 
   // Fallback: single-frame parser + wrap.

@@ -85,6 +85,40 @@ function pass(msg: string): void { console.log(`✓ ${msg}`); }
   pass(`xdatcar-nve: 5 frames, fixed lattice ref shared, Na fractional→cartesian drift correct`);
 }
 
+// ---- Test 3e: extended XYZ multi-frame (v0.17.1.3) ----
+{
+  const p = path.join(ROOT, 'test/fixtures/test-extxyz.xyz');
+  const content = fs.readFileSync(p, 'utf8');
+  const traj = parseStructureFileTraj(content, 'test-extxyz.xyz').trajectory;
+  if (traj.frames.length !== 3) fail(`extxyz: expected 3 frames, got ${traj.frames.length}`);
+  if (traj.latticeMode !== 'fixed') fail(`extxyz: identical Lattice headers → expected 'fixed', got '${traj.latticeMode}'`);
+  // Lattice reference shared after fixed-cell collapse
+  for (let f = 1; f < 3; f++) {
+    if (traj.frames[f].lattice !== traj.frames[0].lattice) {
+      fail(`extxyz: lattice REF differs at frame ${f} (fixed-cell collapse failed)`);
+    }
+  }
+  // Na drift along x: 0.0, 0.1, 0.2 (cartesian, no fractional conversion)
+  for (let f = 0; f < 3; f++) {
+    const expected = f * 0.1;
+    if (Math.abs(traj.frames[f].positions[0][0] - expected) > 1e-5) {
+      fail(`extxyz: frame ${f} Na x = ${traj.frames[f].positions[0][0]}, expected ${expected}`);
+    }
+  }
+  // PBC detected from Lattice presence
+  if (!traj.frames[0].pbc[0]) fail(`extxyz: pbc should be [true,true,true] when Lattice present`);
+  pass(`extxyz: 3 frames, latticeMode=fixed (lattice REF collapsed), Na drift correct, pbc detected`);
+}
+
+// ---- Test 3f: plain XYZ (no Lattice) still works as 1-frame trajectory ----
+{
+  const p = path.join(ROOT, 'test/fixtures/water.xyz');
+  const content = fs.readFileSync(p, 'utf8');
+  const traj = parseStructureFileTraj(content, 'water.xyz').trajectory;
+  if (traj.frames.length !== 1) fail(`water.xyz: plain XYZ should be 1 frame, got ${traj.frames.length}`);
+  pass(`water.xyz: plain XYZ wraps as 1-frame trajectory (parseXyzTraj single-frame branch)`);
+}
+
 // ---- Test 3d: XDATCAR NPT (variable-cell, v0.17.1.2) ----
 {
   const p = path.join(ROOT, 'test/fixtures/test-xdatcar-npt');
