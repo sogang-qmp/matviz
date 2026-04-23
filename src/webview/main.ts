@@ -218,6 +218,13 @@ if (trajSlider) {
     setTrajFrame(parseInt(trajSlider.value));
   });
 }
+const trajBondRecomputeCheck = document.getElementById('traj-bond-recompute') as HTMLInputElement | null;
+if (trajBondRecomputeCheck) {
+  trajBondRecomputeCheck.addEventListener('change', () => {
+    renderer.setRecomputeBondsPerFrame(trajBondRecomputeCheck.checked);
+  });
+}
+const RECOMPUTE_AUTO_DISABLE_THRESHOLD = 5000;
 
 function updateTrajectorySectionVisibility() {
   const section = document.getElementById('trajectory-section');
@@ -232,6 +239,18 @@ function updateTrajectorySectionVisibility() {
     }
     if (trajFrameLabel) {
       trajFrameLabel.textContent = `${renderer.getCurrentFrame() + 1} / ${n}`;
+    }
+    if (trajBondRecomputeCheck) {
+      // Auto-disable for large structures: O(N) per frame at >5k atoms
+      // breaks 30fps even with bond-detection optimizations.
+      const tooBig = renderer.getAtomCount() > RECOMPUTE_AUTO_DISABLE_THRESHOLD;
+      trajBondRecomputeCheck.disabled = tooBig;
+      if (tooBig) {
+        trajBondRecomputeCheck.checked = false;
+        renderer.setRecomputeBondsPerFrame(false);
+      } else {
+        trajBondRecomputeCheck.checked = renderer.getRecomputeBondsPerFrame();
+      }
     }
   } else {
     if (trajPlaying) trajSetPlaying(false);

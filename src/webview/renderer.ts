@@ -108,6 +108,11 @@ export class CrystalRenderer {
   // across frames so user state isn't lost during playback).
   private trajectory: CrystalTrajectory | null = null;
   private currentFrameIndex = 0;
+  // 17.1.5 perf knob: when true, every setFrame re-runs detectBonds
+  // (O(N) spatial hash). Default false — first frame's bonds are inherited
+  // by all subsequent frames, accepting that bonds may be slightly off
+  // when atoms drift far in MD. Auto-disabled in UI for >5k atoms.
+  private recomputeBondsPerFrame = false;
 
   // Per-element user overrides
   private elementColorOverrides = new Map<string, string>();
@@ -261,6 +266,10 @@ export class CrystalRenderer {
    * measurements. Only rebuilds the atom geometry. Cell wireframe + axis
    * indicator are recomputed only when latticeMode='per-frame'.
    *
+   * Bond recomputation honors `recomputeBondsPerFrame` — default false
+   * (first-frame bonds inherited; cheap setFrame). When true, full
+   * O(N) bond detection runs per frame.
+   *
    * No-ops when trajectory absent or index out of range.
    */
   setFrame(index: number): void {
@@ -272,7 +281,16 @@ export class CrystalRenderer {
     if (this.trajectory.latticeMode === 'per-frame') {
       this.updateAxisIndicator();
     }
-    this.rebuild();
+    this.rebuild(false, !this.recomputeBondsPerFrame);
+  }
+
+  // 17.1.5: trajectory bond-recompute toggle.
+  setRecomputeBondsPerFrame(b: boolean): void { this.recomputeBondsPerFrame = b; }
+  getRecomputeBondsPerFrame(): boolean { return this.recomputeBondsPerFrame; }
+
+  /** Cheap helper for UI gating (used by 17.1.5 auto-disable threshold). */
+  getAtomCount(): number {
+    return this.structure ? this.structure.species.length : 0;
   }
 
   getFrameCount(): number {
@@ -1602,7 +1620,15 @@ export class CrystalRenderer {
 
   // --- Rebuild ---
 
-  private rebuild(resetCamera = true) {
+  /**
+   * Rebuild the atom/bond/cell visuals from `this.structure`. Two flags:
+   *   resetCamera (default true)        — re-fit the camera to new bbox
+   *   skipBondsRecompute (default false) — keep `this.cachedBonds` instead
+   *     of re-running `detectBonds()`. 17.1.5 trajectory playback path:
+   *     setFrame passes true so MD frames inherit frame-0 bond pattern
+   *     (cheap O(visualization), not O(detection)).
+   */
+  private rebuild(resetCamera = true, skipBondsRecompute = false) {
     const struct = this.structure!;
     this.disposeResources();
 
@@ -1613,8 +1639,12 @@ export class CrystalRenderer {
     // Auto-populate bond params for new species pairs
     this.autoPopulateBondParams(species);
 
-    // Detect bonds (cached for style switching)
-    this.cachedBonds = this.detectBonds(species, positions);
+    // Detect bonds (cached for style switching). Skipped for trajectory
+    // playback when --recompute-bonds-per-frame is off — caller (setFrame)
+    // accepts that bonds may be off after large atom motion.
+    if (!skipBondsRecompute) {
+      this.cachedBonds = this.detectBonds(species, positions);
+    }
 
     // Auto-populate polyhedra centers on first load (unless user/state already set them)
     if (!this.polyhedraCentersUserSet) this.autoDetectPolyhedraCenters();

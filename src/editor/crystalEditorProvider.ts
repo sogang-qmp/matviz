@@ -324,6 +324,9 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
         <input type="range" id="traj-slider" min="0" max="0" step="1" value="0" title="Scrub frames">
         <span id="traj-frame-label" class="traj-frame-label">0 / 0</span>
       </div>
+      <div class="toggle-group">
+        <label class="toggle" title="Re-detect bonds at every frame (slow — disable above ~5k atoms; off by default uses frame-0 bonds for all frames)"><input type="checkbox" id="traj-bond-recompute"><span>Recompute bonds every frame (slow)</span></label>
+      </div>
     </div>
     <div class="panel-section hidden" id="magnetic-moments-section">
       <div class="panel-label" title="Magnetic moment vectors from VASP MAGMOM (POSCAR title line) or CIF _atom_site_moment_*">Magnetic moments</div>
