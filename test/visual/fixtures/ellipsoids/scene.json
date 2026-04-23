@@ -1,0 +1,10 @@
+{
+  "input": "../../../fixtures/test-aniso.cif",
+  "view": "a",
+  "palette": "dark",
+  "width": 800,
+  "height": 600,
+  "bg": "#1e1e1e",
+  "ellipsoids": true,
+  "ellipsoidContour": 0.5
+}

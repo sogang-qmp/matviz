@@ -58,6 +58,8 @@ interface SceneConfig {
   magmomColormap?: 'redblue' | 'viridis';
   magmomScale?: number;
   partialOccupancy?: boolean;
+  ellipsoids?: boolean;
+  ellipsoidContour?: 0.5 | 0.9;
 }
 
 interface FixtureResult {
@@ -114,6 +116,8 @@ function buildArgs(cfg: SceneConfig, outPath: string): string[] {
   if (cfg.magmomColormap) args.push('--magmom-colormap', cfg.magmomColormap);
   if (cfg.magmomScale != null) args.push('--magmom-scale', String(cfg.magmomScale));
   if (cfg.partialOccupancy) args.push('--partial-occupancy');
+  if (cfg.ellipsoids) args.push('--ellipsoids');
+  if (cfg.ellipsoidContour != null) args.push('--ellipsoid-contour', String(cfg.ellipsoidContour));
   return args;
 }
 

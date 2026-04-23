@@ -71,6 +71,8 @@ before reporting completion. Silent success is not success.
 | `--magmom-colormap` | `redblue`\|`viridis` | `redblue` | Arrow color: `redblue` = sign-coded by mz (FM/AFM intuition); `viridis` = sequential by \|m\| |
 | `--magmom-scale` | number | `1.0` | Arrow length (Å per μB) |
 | `--partial-occupancy` | flag | off | Render sites with `_atom_site_occupancy` < 1 as transparent atoms (opacity = occupancy). Default off shows the dominant species opaque. |
+| `--ellipsoids` | flag | off | Render thermal ellipsoids for atoms with anisotropic U (CIF `_atom_site_aniso_U_*`). Phong-only path. |
+| `--ellipsoid-contour` | `0.5`\|`0.9` | `0.5` | Probability contour level. Implies `--ellipsoids`. |
 | `--test` | flag | — | Render a test scene (red sphere) for smoke-testing |
 | `-h, --help` | flag | — | Print usage |
 
@@ -151,6 +153,17 @@ orthopyroxene) render as stacked transparent spheres with opacity equal to
 each site's occupancy ratio — the perceived color is a weighted blend of the
 species' palette colors. Default off shows the dominant species opaque,
 which matches pre-v0.16 behavior for non-aware fixtures.
+
+**Thermal ellipsoids (anisotropic displacement parameters)**
+```bash
+node {{MATVIZ_DIR}}/dist/render.js calcite.cif \
+  -o calcite_ellip.png --ellipsoids --ellipsoid-contour 0.9
+```
+Atoms with CIF `_atom_site_aniso_U_*` render as probability-surface
+ellipsoids (eigendecomposition of Uᵢⱼ → principal axes). Default contour
+50% (χ²₃ ≈ 2.366); use `--ellipsoid-contour 0.9` for 90% (≈ 6.251). The
+90% volume is roughly 4.3× the 50% volume. Site without aniso data fall
+back to plain spheres in the same render.
 
 ## Supported input formats
 

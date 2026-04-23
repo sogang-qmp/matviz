@@ -52,6 +52,9 @@ interface RenderOptions {
   magmomScale: number;
   // 16.2 partial occupancy
   partialOccupancy: boolean;
+  // 16.1 thermal ellipsoids
+  ellipsoids: boolean;
+  ellipsoidContour: 0.5 | 0.9;
 }
 
 function parseArgs(argv: string[]): RenderOptions {
@@ -80,6 +83,8 @@ function parseArgs(argv: string[]): RenderOptions {
     magmomColormap: 'redblue',
     magmomScale: 1.0,
     partialOccupancy: false,
+    ellipsoids: false,
+    ellipsoidContour: 0.5,
   };
 
   const args = argv.slice(2);
@@ -123,6 +128,17 @@ function parseArgs(argv: string[]): RenderOptions {
       }
       case '--magmom-scale': opts.magmomScale = parseFloat(args[++i]); opts.magmom = true; break;
       case '--partial-occupancy': opts.partialOccupancy = true; break;
+      case '--ellipsoids': opts.ellipsoids = true; break;
+      case '--ellipsoid-contour': {
+        const v = parseFloat(args[++i]);
+        if (v !== 0.5 && v !== 0.9) {
+          console.error(`Invalid --ellipsoid-contour: ${v} (use 0.5 or 0.9)`);
+          process.exit(1);
+        }
+        opts.ellipsoidContour = v as 0.5 | 0.9;
+        opts.ellipsoids = true;
+        break;
+      }
       case '-h': case '--help': printHelp(); process.exit(0);
       default:
         if (!a.startsWith('-')) positional.push(a);
@@ -173,6 +189,11 @@ Options:
   --partial-occupancy    Render sites with _atom_site_occupancy < 1 as transparent
                          atoms with opacity = occupancy (per-site preserved). Default
                          off — full atoms shown, mixed-site overlap hidden.
+  --ellipsoids           Render thermal ellipsoids for atoms with anisotropic U
+                         (CIF _atom_site_aniso_U_*). Phong-only (impostor uniform-
+                         radius assumption excluded). Default off.
+  --ellipsoid-contour <c> Probability contour 0.5 (default; χ²₃ ≈ 2.366) or
+                         0.9 (χ²₃ ≈ 6.251). Implies --ellipsoids.
   --test                 Render test scene (red sphere)
   -h, --help             Show this help`);
 }
@@ -258,6 +279,8 @@ const OPTS = ${JSON.stringify({
     magmomColormap: opts.magmomColormap,
     magmomScale: opts.magmomScale,
     partialOccupancy: opts.partialOccupancy,
+    ellipsoids: opts.ellipsoids,
+    ellipsoidContour: opts.ellipsoidContour,
   })};
 
 // --- Element data (generated from src/shared/elements-data.ts) ---
@@ -329,6 +352,11 @@ const expandedMagMom = haveMagMom ? [] : null;
 // atom path skip those indices to avoid drawing them twice.
 const havePartialOcc = OPTS.partialOccupancy && Array.isArray(structure.occupancy);
 const expandedOccupancy = havePartialOcc ? [] : null;
+// 16.1 thermal ellipsoids: track per-atom Uᵢⱼ tensor (or null) so the
+// ellipsoid block below can iterate without re-mapping expanded → unit-cell
+// index. Atoms with non-null U get peeled off the regular sphere path.
+const haveAniso = OPTS.ellipsoids && Array.isArray(structure.thermalAniso);
+const expandedAniso = haveAniso ? [] : null;
 
 for (let ia = 0; ia < na; ia++) {
   for (let ib = 0; ib < nb; ib++) {
@@ -347,6 +375,7 @@ for (let ia = 0; ia < na; ia++) {
         ]);
         if (expandedMagMom) expandedMagMom.push(structure.magMom[j]);
         if (expandedOccupancy) expandedOccupancy.push(structure.occupancy[j] != null ? structure.occupancy[j] : 1.0);
+        if (expandedAniso) expandedAniso.push(structure.thermalAniso[j] || null);
       }
     }
   }
@@ -392,6 +421,7 @@ if (OPTS.boundary && structure.lattice) {
             positions.push(cp);
             if (expandedMagMom) expandedMagMom.push(structure.magMom[j]);
             if (expandedOccupancy) expandedOccupancy.push(structure.occupancy[j] != null ? structure.occupancy[j] : 1.0);
+            if (expandedAniso) expandedAniso.push(structure.thermalAniso[j] || null);
           }
         }
       }
@@ -488,6 +518,14 @@ if (OPTS.camera !== 'persp') {
 }
 
 // --- Render atoms ---
+// 16.1 ellipsoid: aniso atoms peeled off first (priority over partial — same
+// rule as webview, see src/webview/renderer.ts buildAtoms).
+const ellipsoidIdxSet = new Set();
+if (expandedAniso) {
+  for (let i = 0; i < positions.length; i++) {
+    if (expandedAniso[i] != null) ellipsoidIdxSet.add(i);
+  }
+}
 // 16.2 partial occupancy: split off atoms with occupancy<1 from the regular
 // per-element grouping so the partial render block (below) handles them
 // individually with per-site opacity. Without this filter we'd draw the
@@ -495,6 +533,7 @@ if (OPTS.camera !== 'persp') {
 const partialIdxSet = new Set();
 if (expandedOccupancy) {
   for (let i = 0; i < positions.length; i++) {
+    if (ellipsoidIdxSet.has(i)) continue;
     const occ = expandedOccupancy[i];
     if (occ != null && occ < 1.0 - 1e-6) partialIdxSet.add(i);
   }
@@ -502,6 +541,7 @@ if (expandedOccupancy) {
 
 const elGroups = new Map();
 for (let i = 0; i < species.length; i++) {
+  if (ellipsoidIdxSet.has(i)) continue;
   if (partialIdxSet.has(i)) continue;
   const s = species[i];
   if (!elGroups.has(s)) elGroups.set(s, []);
@@ -536,6 +576,113 @@ for (const [el, indices] of elGroups) {
   }
   mesh.instanceMatrix.needsUpdate = true;
   scene.add(mesh);
+}
+
+// --- 16.1 Thermal ellipsoids (matches src/webview/ellipsoidRenderer.ts) ---
+// Per-element InstancedMesh, sphere geometry transformed by per-instance
+// 4×4 matrix = T(c) · R · diag(scale·√λ₁, scale·√λ₂, scale·√λ₃) where R is
+// the eigenvector frame of Uᵢⱼ and λᵢ its eigenvalues. Phong-only path
+// (CLI uses Phong throughout). χ²₃ scales hard-coded.
+if (ellipsoidIdxSet.size > 0 && expandedAniso) {
+  const CONTOUR_50 = Math.sqrt(2.366);
+  const CONTOUR_90 = Math.sqrt(6.251);
+  const scale = OPTS.ellipsoidContour === 0.9 ? CONTOUR_90 : CONTOUR_50;
+
+  // Inline 3×3 symmetric Jacobi (matches src/webview/math/symEigen.ts).
+  function jacobiSym3(M) {
+    const A = [[M[0][0],M[0][1],M[0][2]],[M[1][0],M[1][1],M[1][2]],[M[2][0],M[2][1],M[2][2]]];
+    const V = [[1,0,0],[0,1,0],[0,0,1]];
+    const TOL = 1e-10;
+    for (let sweep = 0; sweep < 50; sweep++) {
+      const off = A[0][1]*A[0][1] + A[0][2]*A[0][2] + A[1][2]*A[1][2];
+      if (off < TOL) break;
+      for (let p = 0; p < 2; p++) {
+        for (let q = p + 1; q < 3; q++) {
+          const apq = A[p][q];
+          if (Math.abs(apq) < TOL) continue;
+          const app = A[p][p], aqq = A[q][q];
+          let t;
+          if (Math.abs(app - aqq) < 1e-30) t = apq >= 0 ? 1 : -1;
+          else {
+            const theta = (aqq - app) / (2 * apq);
+            const sgn = theta >= 0 ? 1 : -1;
+            t = sgn / (Math.abs(theta) + Math.sqrt(theta*theta + 1));
+          }
+          const c = 1 / Math.sqrt(t*t + 1);
+          const s = t * c;
+          const tau = s / (1 + c);
+          A[p][p] = app - t*apq;
+          A[q][q] = aqq + t*apq;
+          A[p][q] = 0; A[q][p] = 0;
+          const r = 3 - p - q;
+          const arp = A[r][p], arq = A[r][q];
+          A[r][p] = arp - s*(arq + tau*arp); A[p][r] = A[r][p];
+          A[r][q] = arq + s*(arp - tau*arq); A[q][r] = A[r][q];
+          for (let k = 0; k < 3; k++) {
+            const vkp = V[k][p], vkq = V[k][q];
+            V[k][p] = vkp - s*(vkq + tau*vkp);
+            V[k][q] = vkq + s*(vkp - tau*vkq);
+          }
+        }
+      }
+    }
+    return {
+      values: [A[0][0], A[1][1], A[2][2]],
+      vectors: [
+        [V[0][0], V[1][0], V[2][0]],
+        [V[0][1], V[1][1], V[2][1]],
+        [V[0][2], V[1][2], V[2][2]],
+      ],
+    };
+  }
+
+  // Group ellipsoid atoms by element so each element gets one InstancedMesh.
+  const ellipsoidGroups = new Map();
+  for (const i of ellipsoidIdxSet) {
+    const el = species[i];
+    if (!ellipsoidGroups.has(el)) ellipsoidGroups.set(el, []);
+    ellipsoidGroups.get(el).push(i);
+  }
+
+  const ellipsoidGeo = new THREE.SphereGeometry(1, 24, 16);
+  for (const [el, indices] of ellipsoidGroups) {
+    const color = getColor(el);
+    const mat = new THREE.MeshPhongMaterial({ color: new THREE.Color(color), shininess: 30 });
+    const mesh = new THREE.InstancedMesh(ellipsoidGeo, mat, indices.length);
+    const matrix = new THREE.Matrix4();
+    for (let k = 0; k < indices.length; k++) {
+      const i = indices[k];
+      const u = expandedAniso[i];
+      const Umat = [
+        [u.U11, u.U12, u.U13],
+        [u.U12, u.U22, u.U23],
+        [u.U13, u.U23, u.U33],
+      ];
+      const eig = jacobiSym3(Umat);
+      const r0 = Math.sqrt(Math.max(eig.values[0], 0));
+      const r1 = Math.sqrt(Math.max(eig.values[1], 0));
+      const r2 = Math.sqrt(Math.max(eig.values[2], 0));
+      const v0 = eig.vectors[0], v1 = eig.vectors[1], v2 = eig.vectors[2];
+      // Right-handed frame guard
+      const det =
+        v0[0]*(v1[1]*v2[2]-v1[2]*v2[1]) -
+        v0[1]*(v1[0]*v2[2]-v1[2]*v2[0]) +
+        v0[2]*(v1[0]*v2[1]-v1[1]*v2[0]);
+      const f0 = scale * r0, f1 = scale * r1, f2 = scale * (det < 0 ? -r2 : r2);
+      const c = positions[i];
+      // Column-major 4×4: [v0*f0; v1*f1; v2*f2; center,1]
+      matrix.fromArray([
+        v0[0]*f0, v0[1]*f0, v0[2]*f0, 0,
+        v1[0]*f1, v1[1]*f1, v1[2]*f1, 0,
+        v2[0]*f2, v2[1]*f2, v2[2]*f2, 0,
+        c[0],     c[1],     c[2],     1,
+      ]);
+      mesh.setMatrixAt(k, matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+    scene.add(mesh);
+  }
 }
 
 // --- 16.2 Partial-occupancy atoms (per-site transparent Mesh) ---
