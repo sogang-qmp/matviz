@@ -328,6 +328,39 @@ export class CrystalRenderer {
 
   getPhaseCount(): number { return this.secondaryPhases.length; }
 
+  /** Per-phase introspection for the side-panel UI list rendering (17.2.1). */
+  getPhases(): Array<{ atomCount: number; opacity: number; visible: boolean }> {
+    return this.secondaryPhases.map(p => ({
+      atomCount: p.struct.species.length,
+      opacity: p.opacity,
+      visible: (p as any)._visible !== false,
+    }));
+  }
+
+  setPhaseVisible(idx: number, visible: boolean): void {
+    if (idx < 0 || idx >= this.secondaryPhases.length) return;
+    (this.secondaryPhases[idx] as any)._visible = visible;
+    this.rebuildSecondaryPhases();
+  }
+
+  setPhaseOpacity(idx: number, opacity: number): void {
+    if (idx < 0 || idx >= this.secondaryPhases.length) return;
+    this.secondaryPhases[idx].opacity = Math.max(0, Math.min(1, opacity));
+    this.rebuildSecondaryPhases();
+  }
+
+  removePhase(idx: number): void {
+    if (idx < 0 || idx >= this.secondaryPhases.length) return;
+    const wasFirst = (idx === 0);
+    this.secondaryPhases.splice(idx, 1);
+    // Comparison binds to phase[0] — if we removed it (or removed any phase
+    // when comparison was active and only one remained), clear comparison.
+    if (this.comparisonActive && (wasFirst || this.secondaryPhases.length === 0)) {
+      this.clearComparison();
+    }
+    this.rebuildSecondaryPhases();
+  }
+
   // 17.3 comparison mode API.
   compareToPhase(): { ok: boolean; reason?: string } {
     if (this.secondaryPhases.length === 0) {
@@ -392,6 +425,9 @@ export class CrystalRenderer {
     // rebuildSecondaryPhases disposes it (above loop catches it through
     // the InstancedMesh.geometry chain).
     for (const phase of this.secondaryPhases) {
+      // 17.2.1 visibility toggle: per-phase _visible flag (lazy field on the
+      // phase object). When false, skip rebuild for this phase entirely.
+      if ((phase as any)._visible === false) continue;
       const groups = new Map<string, number[]>();
       for (let i = 0; i < phase.struct.species.length; i++) {
         const s = phase.struct.species[i];

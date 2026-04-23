@@ -570,3 +570,48 @@ body.layout-offset #canvas {
   text-align: right;
   white-space: nowrap;
 }
+
+/* ===== v0.17.2.1 Trajectory UX polish + Phases section ===== */
+.traj-frame-input {
+  flex: 0 0 50px;
+  background: var(--vscode-input-background, #3c3c3c);
+  color: var(--vscode-input-foreground, #ccc);
+  border: 1px solid var(--vscode-input-border, #555);
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+}
+.traj-frame-input::-webkit-inner-spin-button { display: none; }
+.traj-control-label {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground, #aaa);
+  min-width: 38px;
+}
+#traj-speed-slider { flex: 1; }
+#phases-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.phase-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+.phase-row .phase-vis { margin: 0; }
+.phase-label {
+  flex: 1;
+  font-size: 11px;
+  color: var(--vscode-foreground, #ccc);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.phase-opacity {
+  flex: 0 0 60px;
+}
+.phase-remove {
+  flex: 0 0 22px;
+  padding: 1px 4px;
+  font-weight: bold;
+}
+.full-width { width: 100%; }

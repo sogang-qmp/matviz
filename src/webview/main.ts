@@ -169,30 +169,50 @@ function updatePartialOccupancySectionVisibility() {
   }
 }
 
-// 17.1.4 Trajectory playback (frame slider + play/pause + rAF loop)
+// 17.1.4 + 17.2.1 Trajectory playback (frame slider + play/pause + rAF loop +
+// speed slider + frame input + once-only loop + keyboard)
 const trajPlayBtn = document.getElementById('traj-play-btn') as HTMLButtonElement | null;
 const trajSlider = document.getElementById('traj-slider') as HTMLInputElement | null;
+const trajFrameInput = document.getElementById('traj-frame-input') as HTMLInputElement | null;
 const trajFrameLabel = document.getElementById('traj-frame-label') as HTMLSpanElement | null;
+const trajSpeedSlider = document.getElementById('traj-speed-slider') as HTMLInputElement | null;
+const trajSpeedLabel = document.getElementById('traj-speed-label') as HTMLSpanElement | null;
+const trajLoopCheck = document.getElementById('traj-loop-check') as HTMLInputElement | null;
 let trajPlaying = false;
 let trajRafId: number | null = null;
-const TRAJ_TARGET_FPS = 30;
-const TRAJ_TARGET_FRAME_MS = 1000 / TRAJ_TARGET_FPS;
+const TRAJ_BASE_FPS = 30;
+let trajSpeed = 1.0;
 let trajLastTick = 0;
+
+function trajFrameMs(): number { return 1000 / (TRAJ_BASE_FPS * trajSpeed); }
 
 function setTrajFrame(idx: number) {
   renderer.setFrame(idx);
   if (trajSlider) trajSlider.value = String(idx);
+  if (trajFrameInput) trajFrameInput.value = String(idx + 1);
   if (trajFrameLabel) {
-    trajFrameLabel.textContent = `${idx + 1} / ${renderer.getFrameCount()}`;
+    trajFrameLabel.textContent = `/ ${renderer.getFrameCount()}`;
   }
 }
 
 function trajPlayLoop(t: number) {
   if (!trajPlaying) return;
-  if (t - trajLastTick >= TRAJ_TARGET_FRAME_MS) {
+  if (t - trajLastTick >= trajFrameMs()) {
     trajLastTick = t;
-    const next = (renderer.getCurrentFrame() + 1) % renderer.getFrameCount();
-    setTrajFrame(next);
+    const cur = renderer.getCurrentFrame();
+    const total = renderer.getFrameCount();
+    const next = cur + 1;
+    if (next >= total) {
+      // End of trajectory — loop or stop based on Loop checkbox.
+      if (trajLoopCheck && trajLoopCheck.checked) {
+        setTrajFrame(0);
+      } else {
+        trajSetPlaying(false);
+        return;
+      }
+    } else {
+      setTrajFrame(next);
+    }
   }
   trajRafId = requestAnimationFrame(trajPlayLoop);
 }
@@ -218,6 +238,112 @@ if (trajSlider) {
     setTrajFrame(parseInt(trajSlider.value));
   });
 }
+// 17.2.1 frame number direct input (Enter to jump)
+if (trajFrameInput) {
+  trajFrameInput.addEventListener('change', () => {
+    if (trajPlaying) trajSetPlaying(false);
+    const n = parseInt(trajFrameInput.value);
+    if (Number.isFinite(n)) setTrajFrame(n - 1);
+  });
+}
+// 17.2.1 speed slider
+if (trajSpeedSlider) {
+  trajSpeedSlider.addEventListener('input', () => {
+    trajSpeed = parseFloat(trajSpeedSlider.value);
+    if (trajSpeedLabel) trajSpeedLabel.textContent = `${trajSpeed.toFixed(2)}×`;
+  });
+}
+// 17.2.1 Phases section (list rendering + Add Phase btn + Comparison toggle)
+function rebuildPhasesList() {
+  const list = document.getElementById('phases-list');
+  if (!list) return;
+  list.innerHTML = '';
+  const phases = renderer.getPhases();
+  for (let i = 0; i < phases.length; i++) {
+    const p = phases[i];
+    const row = document.createElement('div');
+    row.className = 'phase-row';
+    row.dataset.idx = String(i);
+    const visEl = document.createElement('input');
+    visEl.type = 'checkbox';
+    visEl.className = 'phase-vis';
+    visEl.checked = p.visible;
+    visEl.title = 'Show / hide this phase';
+    visEl.addEventListener('change', () => renderer.setPhaseVisible(i, visEl.checked));
+    const labelEl = document.createElement('span');
+    labelEl.className = 'phase-label';
+    labelEl.textContent = `phase ${i + 1} (${p.atomCount} atoms)`;
+    const opEl = document.createElement('input');
+    opEl.type = 'range';
+    opEl.className = 'phase-opacity';
+    opEl.min = '0'; opEl.max = '1'; opEl.step = '0.05';
+    opEl.value = String(p.opacity);
+    opEl.title = `Opacity ${p.opacity.toFixed(2)}`;
+    opEl.addEventListener('input', () => {
+      renderer.setPhaseOpacity(i, parseFloat(opEl.value));
+      opEl.title = `Opacity ${opEl.value}`;
+    });
+    const rmEl = document.createElement('button');
+    rmEl.className = 'phase-remove panel-btn';
+    rmEl.textContent = '×';
+    rmEl.title = 'Remove this phase';
+    rmEl.addEventListener('click', () => {
+      renderer.removePhase(i);
+      rebuildPhasesList();
+      const ct = document.getElementById('compare-toggle') as HTMLInputElement | null;
+      if (ct) ct.checked = renderer.isComparisonActive();
+    });
+    row.appendChild(visEl);
+    row.appendChild(labelEl);
+    row.appendChild(opEl);
+    row.appendChild(rmEl);
+    list.appendChild(row);
+  }
+}
+function updatePhasesSectionVisibility() {
+  const section = document.getElementById('phases-section');
+  if (!section) return;
+  // Always show when a structure is loaded — Add Phase button is the entry
+  // point for users to discover the feature.
+  if (renderer.getStructureInfo()) {
+    section.classList.remove('hidden');
+  } else {
+    section.classList.add('hidden');
+  }
+  rebuildPhasesList();
+  const ct = document.getElementById('compare-toggle') as HTMLInputElement | null;
+  if (ct) ct.checked = renderer.isComparisonActive();
+}
+const addPhaseBtn = document.getElementById('add-phase-btn');
+if (addPhaseBtn) {
+  addPhaseBtn.addEventListener('click', () => vscode.postMessage({ type: 'addPhaseRequest' }));
+}
+const compareToggle = document.getElementById('compare-toggle') as HTMLInputElement | null;
+if (compareToggle) {
+  compareToggle.addEventListener('change', () => {
+    if (compareToggle.checked) {
+      const r = renderer.compareToPhase();
+      if (!r.ok) {
+        compareToggle.checked = false;
+        // 17.2.1 toast upgrade — surface failure reason via vscode notification
+        vscode.postMessage({ type: 'comparisonResult', ok: false, reason: r.reason });
+      }
+    } else {
+      renderer.clearComparison();
+    }
+  });
+}
+
+// 17.2.1 keyboard: Space toggles play/pause when trajectory is loaded and
+// no input/textarea has focus.
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'Space') return;
+  if (!renderer.hasTrajectory()) return;
+  const target = e.target as HTMLElement | null;
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+  e.preventDefault();
+  trajSetPlaying(!trajPlaying);
+});
 const trajBondRecomputeCheck = document.getElementById('traj-bond-recompute') as HTMLInputElement | null;
 if (trajBondRecomputeCheck) {
   trajBondRecomputeCheck.addEventListener('change', () => {
@@ -237,8 +363,13 @@ function updateTrajectorySectionVisibility() {
       trajSlider.max = String(n - 1);
       trajSlider.value = String(renderer.getCurrentFrame());
     }
+    if (trajFrameInput) {
+      trajFrameInput.min = '1';
+      trajFrameInput.max = String(n);
+      trajFrameInput.value = String(renderer.getCurrentFrame() + 1);
+    }
     if (trajFrameLabel) {
-      trajFrameLabel.textContent = `${renderer.getCurrentFrame() + 1} / ${n}`;
+      trajFrameLabel.textContent = `/ ${n}`;
     }
     if (trajBondRecomputeCheck) {
       // Auto-disable for large structures: O(N) per frame at >5k atoms
@@ -731,6 +862,9 @@ window.addEventListener('message', (event) => {
       // 17.1.4: hide trajectory section if previously a multi-frame file was
       // loaded in this webview session (loadStructure resets trajectory).
       updateTrajectorySectionVisibility();
+      // 17.2.1: phases section visibility (always shown when a structure
+      // is loaded, even before any phase is added).
+      updatePhasesSectionVisibility();
       break;
     }
     case 'resetCamera': renderer.resetCamera(); break;
@@ -783,14 +917,27 @@ window.addEventListener('message', (event) => {
       updatePartialOccupancySectionVisibility();
       updateMagneticMomentsSectionVisibility();
       updateTrajectorySectionVisibility();
+      updatePhasesSectionVisibility();
       break;
     }
     case 'setFrame': renderer.setFrame(msg.index); break;
     case 'addPhase':
       renderer.addPhase(msg.data, msg.offset, msg.opacity);
+      updatePhasesSectionVisibility();
       break;
     case 'clearPhases':
       renderer.clearPhases();
+      updatePhasesSectionVisibility();
+      break;
+    case 'setPhaseVisible':
+      renderer.setPhaseVisible(msg.index, msg.visible);
+      break;
+    case 'setPhaseOpacity':
+      renderer.setPhaseOpacity(msg.index, msg.opacity);
+      break;
+    case 'removePhase':
+      renderer.removePhase(msg.index);
+      updatePhasesSectionVisibility();
       break;
     case 'compareToPhase': {
       const r = renderer.compareToPhase();

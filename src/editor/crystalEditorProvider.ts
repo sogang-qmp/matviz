@@ -124,6 +124,18 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
       if (msg.type === 'openAsText') {
         vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
       }
+      // 17.2.1 add-phase via side-panel button (webview-initiated; no
+      // command palette round-trip needed).
+      if (msg.type === 'addPhaseRequest') {
+        vscode.commands.executeCommand('matviz.addPhase');
+      }
+      // 17.2.1 compare-to-phase failure → vscode toast (replaces console.warn)
+      if (msg.type === 'comparisonResult') {
+        const r = msg as { type: 'comparisonResult'; ok: boolean; reason?: string };
+        if (!r.ok && r.reason) {
+          vscode.window.showWarningMessage(`MatViz: ${r.reason}`);
+        }
+      }
     });
 
     webviewPanel.onDidChangeViewState(() => {
@@ -320,12 +332,27 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     <div class="panel-section hidden" id="trajectory-section">
       <div class="panel-label" title="MD trajectory from AXSF / XDATCAR / extended XYZ">Trajectory</div>
       <div class="trajectory-controls">
-        <button id="traj-play-btn" class="panel-btn" title="Play / Pause">▶</button>
+        <button id="traj-play-btn" class="panel-btn" title="Play / Pause (Space)">▶</button>
         <input type="range" id="traj-slider" min="0" max="0" step="1" value="0" title="Scrub frames">
-        <span id="traj-frame-label" class="traj-frame-label">0 / 0</span>
+        <input type="number" id="traj-frame-input" class="traj-frame-input" min="1" value="1" title="Jump to frame">
+        <span id="traj-frame-label" class="traj-frame-label">/ 0</span>
+      </div>
+      <div class="trajectory-controls">
+        <span class="traj-control-label" title="Playback speed multiplier">Speed</span>
+        <input type="range" id="traj-speed-slider" min="0.25" max="2" step="0.25" value="1" title="0.25× – 2×">
+        <span id="traj-speed-label" class="traj-frame-label">1.00×</span>
       </div>
       <div class="toggle-group">
+        <label class="toggle" title="Repeat playback at end of trajectory"><input type="checkbox" id="traj-loop-check" checked><span>Loop</span></label>
         <label class="toggle" title="Re-detect bonds at every frame (slow — disable above ~5k atoms; off by default uses frame-0 bonds for all frames)"><input type="checkbox" id="traj-bond-recompute"><span>Recompute bonds every frame (slow)</span></label>
+      </div>
+    </div>
+    <div class="panel-section hidden" id="phases-section">
+      <div class="panel-label" title="Overlay structures rendered alongside the primary">Phases (overlay)</div>
+      <div id="phases-list"></div>
+      <button id="add-phase-btn" class="panel-btn full-width" title="Add a structure file to overlay">+ Add Phase…</button>
+      <div class="toggle-group" id="comparison-row">
+        <label class="toggle" title="Display NN displacement arrows from primary atoms to first secondary phase atoms (Viridis colormap)"><input type="checkbox" id="compare-toggle"><span>Compare to first phase (displacement arrows)</span></label>
       </div>
     </div>
     <div class="panel-section hidden" id="magnetic-moments-section">

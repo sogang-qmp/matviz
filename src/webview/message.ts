@@ -23,9 +23,20 @@ export type ExtensionMessage =
   | { type: 'clearPhases' }
   // v0.17.1 (17.3) comparison mode
   | { type: 'compareToPhase' }
-  | { type: 'clearComparison' };
+  | { type: 'clearComparison' }
+  // v0.17.2.1 phase management messages (extension → webview)
+  | { type: 'setPhaseVisible'; index: number; visible: boolean }
+  | { type: 'setPhaseOpacity'; index: number; opacity: number }
+  | { type: 'removePhase'; index: number };
 
+// Webview → extension messages (handled in crystalEditorProvider's
+// onDidReceiveMessage). 17.2.1 adds two: addPhaseRequest (button → file
+// picker) and comparisonResult (compare pre-flight result for vscode
+// notification).
 export type WebviewMessage =
   | { type: 'ready' }
   | { type: 'atomSelected'; data: { index: number; element: string; cartesian: [number, number, number]; fractional: [number, number, number] } | null }
-  | { type: 'measurement'; data: { type: 'distance' | 'angle' | 'dihedral'; value: number; atoms: number[] } };
+  | { type: 'measurement'; data: { type: 'distance' | 'angle' | 'dihedral'; value: number; atoms: number[] } }
+  | { type: 'openAsText' }
+  | { type: 'addPhaseRequest' }
+  | { type: 'comparisonResult'; ok: boolean; reason?: string };
