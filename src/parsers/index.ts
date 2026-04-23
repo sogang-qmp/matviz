@@ -1,4 +1,4 @@
-import { CrystalStructure, VolumetricData } from './types';
+import { CrystalStructure, CrystalTrajectory, VolumetricData } from './types';
 import { parseCif } from './cifParser';
 import { parsePoscar } from './poscarParser';
 import { parseXsf } from './xsfParser';
@@ -12,6 +12,11 @@ import { parseAims } from './aimsParser';
 export interface ParseResult {
   structure: CrystalStructure;
   volumetric?: VolumetricData;
+}
+
+export interface ParseTrajectoryResult {
+  trajectory: CrystalTrajectory;
+  volumetric?: VolumetricData;  // first-frame volumetric only (v0.17 scope)
 }
 
 export function parseStructureFile(content: string, filename: string): ParseResult {
@@ -78,4 +83,21 @@ export function parseStructureFile(content: string, filename: string): ParseResu
   return { structure: parsePoscar(content) };
 }
 
-export { CrystalStructure, VolumetricData } from './types';
+export { CrystalStructure, CrystalTrajectory, VolumetricData } from './types';
+
+/**
+ * Trajectory-aware entry point for v0.17 multi-frame formats. Wraps any
+ * single-frame parser output into a length-1 trajectory; format-specific
+ * multi-frame parsers (AXSF in 17.1.1, XDATCAR in 17.1.2, extended XYZ in
+ * 17.1.3) plug in here as they land. Existing call sites that don't need
+ * multi-frame can keep using parseStructureFile() — backward compatible.
+ */
+export function parseStructureFileTraj(content: string, filename: string): ParseTrajectoryResult {
+  // v0.17.1.0: wrap-only. Multi-frame format dispatch is added incrementally
+  // by 17.1.1+ when each parser gains a Traj entry.
+  const single = parseStructureFile(content, filename);
+  return {
+    trajectory: { frames: [single.structure], latticeMode: 'fixed' },
+    volumetric: single.volumetric,
+  };
+}

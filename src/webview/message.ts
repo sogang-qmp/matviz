@@ -1,4 +1,4 @@
-import { CrystalStructure, VolumetricData } from '../parsers/types';
+import { CrystalStructure, CrystalTrajectory, VolumetricData } from '../parsers/types';
 
 export type DisplayStyle = 'ball-and-stick' | 'space-filling' | 'stick' | 'wireframe';
 export type CameraMode = 'orthographic' | 'perspective';
@@ -14,7 +14,10 @@ export type ExtensionMessage =
   | { type: 'addLatticePlane'; hkl: [number, number, number]; distance?: number }
   | { type: 'clearLatticePlanes' }
   | { type: 'setWulff'; planes: Array<{ h: number; k: number; l: number; gamma: number }> }
-  | { type: 'clearWulff' };
+  | { type: 'clearWulff' }
+  // v0.17 trajectory
+  | { type: 'loadTrajectory'; data: CrystalTrajectory }
+  | { type: 'setFrame'; index: number };
 
 export type WebviewMessage =
   | { type: 'ready' }

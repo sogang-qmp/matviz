@@ -657,6 +657,40 @@ window.addEventListener('message', (event) => {
       break;
     }
     case 'clearWulff': renderer.clearWulff(); break;
+    case 'loadTrajectory': {
+      // 17.1.0: trajectory entry. For 1-frame trajectories the path is
+      // observably equivalent to loadStructure; for >1 frame, 17.1.4 wires
+      // up the side-panel slider via updateTrajectorySectionVisibility().
+      renderer.loadTrajectory(msg.data);
+      const f0 = msg.data.frames[0];
+      const fallback = msg.data.frames.length > 1
+        ? `${f0.species.length} atoms | ${f0.title || ''} | ${msg.data.frames.length} frames`
+        : `${f0.species.length} atoms | ${f0.title || ''}`;
+      // Mirror loadStructure post-load setup: rebuild data-driven side-panel
+      // sections so opt-in features (ellipsoid/partial/magmom) appear when
+      // the first frame carries the data.
+      const si = renderer.getStructureInfo();
+      if (si) {
+        const cp = si.cellParams;
+        let txt = `${si.formula} | ${si.atomCount} atoms | ${si.spaceGroup}`;
+        if (cp) txt += ` | a=${cp.a.toFixed(2)} b=${cp.b.toFixed(2)} c=${cp.c.toFixed(2)}`;
+        txt += ` | V=${si.volume.toFixed(1)} Å³`;
+        if (msg.data.frames.length > 1) txt += ` | ${msg.data.frames.length} frames`;
+        info.textContent = txt;
+      } else {
+        info.textContent = fallback;
+      }
+      buildAtomPropsUI();
+      buildBondPropsUI();
+      buildPolyCentersUI();
+      updatePolyCentersVisibility();
+      updateBondSkipHint();
+      updateEllipsoidsSectionVisibility();
+      updatePartialOccupancySectionVisibility();
+      updateMagneticMomentsSectionVisibility();
+      break;
+    }
+    case 'setFrame': renderer.setFrame(msg.index); break;
     case 'loadVolumetric': {
       renderer.loadVolumetric(msg.data);
       const isoSection = document.getElementById('iso-section')!;

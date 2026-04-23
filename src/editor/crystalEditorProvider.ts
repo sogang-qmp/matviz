@@ -1,15 +1,20 @@
 import * as vscode from 'vscode';
-import { CrystalStructure, VolumetricData } from '../parsers/types';
-import { parseStructureFile } from '../parsers/index';
+import { CrystalStructure, CrystalTrajectory, VolumetricData } from '../parsers/types';
+import { parseStructureFileTraj } from '../parsers/index';
 import { exportCif, exportPoscar } from '../parsers/exporters';
 import path from 'path';
 
 class CrystalDocument implements vscode.CustomDocument {
   constructor(
     public readonly uri: vscode.Uri,
-    public readonly structure: CrystalStructure,
+    public readonly trajectory: CrystalTrajectory,
     public readonly volumetric?: VolumetricData
   ) {}
+
+  // Convenience for code paths that only care about the first frame
+  // (export, info display defaults). Trajectory-aware code reads
+  // .trajectory directly.
+  get structure(): CrystalStructure { return this.trajectory.frames[0]; }
 
   dispose() {}
 }
@@ -50,8 +55,11 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     const content = new TextDecoder('utf-8').decode(data);
     const filename = path.basename(uri.fsPath);
     try {
-      const result = parseStructureFile(content, filename);
-      return new CrystalDocument(uri, result.structure, result.volumetric);
+      // 17.1.0: trajectory-aware entry. For single-frame files this wraps
+      // into a 1-frame trajectory (no observable behavior change). 17.1.1+
+      // multi-frame parsers (AXSF, XDATCAR, extended XYZ) populate frames.
+      const result = parseStructureFileTraj(content, filename);
+      return new CrystalDocument(uri, result.trajectory, result.volumetric);
     } catch (err: any) {
       const msg = err?.message ?? String(err);
       vscode.window.showErrorMessage(
@@ -86,10 +94,21 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
 
     webviewPanel.webview.onDidReceiveMessage((msg) => {
       if (msg.type === 'ready') {
-        webviewPanel.webview.postMessage({
-          type: 'loadStructure',
-          data: document.structure,
-        });
+        // 17.1.0 dispatch: route multi-frame trajectories to loadTrajectory,
+        // single-frame to loadStructure (cheaper — webview skips trajectory
+        // state). Until 17.1.1 lands AXSF parsing, the trajectory always has
+        // length 1, so loadStructure is taken — backward-compat preserved.
+        if (document.trajectory.frames.length > 1) {
+          webviewPanel.webview.postMessage({
+            type: 'loadTrajectory',
+            data: document.trajectory,
+          });
+        } else {
+          webviewPanel.webview.postMessage({
+            type: 'loadStructure',
+            data: document.structure,
+          });
+        }
         if (document.volumetric) {
           webviewPanel.webview.postMessage({
             type: 'loadVolumetric',

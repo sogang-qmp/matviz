@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
-import { CrystalStructure } from '../parsers/types';
+import { CrystalStructure, CrystalTrajectory } from '../parsers/types';
 import { getElement } from '../shared/elements-data';
 import { getElementPaletteColor, getPaletteLineColors } from '../shared/elements-palette';
 import type { ColorPalette } from '../shared/elements-palette';
@@ -100,6 +100,14 @@ export class CrystalRenderer {
   // 16.4 Wulff construction — command-palette driven overlay.
   private wulffGroup = new THREE.Group();
   private currentWulffPlanes: Array<{ h: number; k: number; l: number; gamma: number }> | null = null;
+
+  // v0.17 trajectory state. Null means single-frame mode (loaded via
+  // loadStructure). Trajectory loaded via loadTrajectory; setFrame swaps
+  // this.structure to a different frame WITHOUT the heavy reset that
+  // loadStructure does (bondParams, selection, measurements persist
+  // across frames so user state isn't lost during playback).
+  private trajectory: CrystalTrajectory | null = null;
+  private currentFrameIndex = 0;
 
   // Per-element user overrides
   private elementColorOverrides = new Map<string, string>();
@@ -218,11 +226,65 @@ export class CrystalRenderer {
 
   loadStructure(structure: CrystalStructure) {
     this.structure = structure;
+    // Single-frame entry resets trajectory state — user opened a non-trajectory
+    // file (or the underlying parseStructureFile path was taken).
+    this.trajectory = null;
+    this.currentFrameIndex = 0;
     this.bondParams.clear();
     this.selectedAtoms = [];
     this.clearMeasurements();
     this.updateAxisIndicator();
     this.rebuild();
+  }
+
+  /**
+   * v0.17 trajectory entry. Stores the trajectory + renders frame 0 with
+   * the full reset (bondParams, selection, etc.). Subsequent frame changes
+   * use setFrame() which is a lighter swap.
+   */
+  loadTrajectory(traj: CrystalTrajectory) {
+    if (traj.frames.length === 0) return;
+    this.trajectory = traj;
+    this.currentFrameIndex = 0;
+    // Full reset on initial load — same as loadStructure for first frame.
+    this.structure = traj.frames[0];
+    this.bondParams.clear();
+    this.selectedAtoms = [];
+    this.clearMeasurements();
+    this.updateAxisIndicator();
+    this.rebuild();
+  }
+
+  /**
+   * Swap to a different trajectory frame. Lightweight: preserves bondParams
+   * (settings), selectedAtoms (atom-index stable across frames), and
+   * measurements. Only rebuilds the atom geometry. Cell wireframe + axis
+   * indicator are recomputed only when latticeMode='per-frame'.
+   *
+   * No-ops when trajectory absent or index out of range.
+   */
+  setFrame(index: number): void {
+    if (!this.trajectory) return;
+    const clamped = Math.max(0, Math.min(index, this.trajectory.frames.length - 1));
+    if (clamped === this.currentFrameIndex) return;
+    this.currentFrameIndex = clamped;
+    this.structure = this.trajectory.frames[clamped];
+    if (this.trajectory.latticeMode === 'per-frame') {
+      this.updateAxisIndicator();
+    }
+    this.rebuild();
+  }
+
+  getFrameCount(): number {
+    return this.trajectory ? this.trajectory.frames.length : (this.structure ? 1 : 0);
+  }
+
+  getCurrentFrame(): number { return this.currentFrameIndex; }
+
+  /** True only for multi-frame trajectories (frames > 1). UI uses this to
+   *  surface the playback section. */
+  hasTrajectory(): boolean {
+    return this.trajectory !== null && this.trajectory.frames.length > 1;
   }
 
   setSupercell(sc: [number, number, number]) {

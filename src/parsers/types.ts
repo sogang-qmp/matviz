@@ -32,3 +32,23 @@ export interface VolumetricData {
   dims: [number, number, number];
   data: Float32Array;
 }
+
+/**
+ * v0.17 multi-frame wrapper. Single-frame files wrap into a length-1
+ * trajectory so all downstream code can iterate uniformly.
+ *
+ * Invariants (parser-enforced; webview/CLI relies on these):
+ * - frames.length ≥ 1
+ * - frames[i].species.length is identical across all i (atom invariance)
+ * - frames[i].positions.length === frames[i].species.length
+ * - latticeMode === 'fixed' ⇒ frames[i].lattice === frames[0].lattice
+ *   (object reference equality so renderer can short-circuit cell rebuild)
+ *
+ * v0.16 optional fields (thermalAniso, occupancy, magMom) live per-frame.
+ * The first cut consumes only frame[0]'s optionals; per-frame variation is
+ * deferred to v0.17.x (extended XYZ properties pipeline).
+ */
+export interface CrystalTrajectory {
+  frames: CrystalStructure[];
+  latticeMode: 'fixed' | 'per-frame';
+}

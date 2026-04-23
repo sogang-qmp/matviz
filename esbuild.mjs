@@ -111,6 +111,18 @@ const wulffTestConfig = {
   // BufferGeometry-rendering paths; ConvexGeometry's QuickHull is pure math.
 };
 
+// CrystalTrajectory bridge test (17.1.0). Verifies single-frame wrap +
+// invariants. Multi-frame format-specific tests added in 17.1.1+.
+const trajectoryTestConfig = {
+  entryPoints: ['scripts/test-trajectory.ts'],
+  bundle: true,
+  outfile: 'dist/test-trajectory.js',
+  format: 'cjs',
+  platform: 'node',
+  target: 'node18',
+  sourcemap: false,
+};
+
 if (watch) {
   const ctx1 = await esbuild.context(extensionConfig);
   const ctx2 = await esbuild.context(webviewConfig);
@@ -127,5 +139,6 @@ if (watch) {
   await esbuild.build(symEigenTestConfig);
   await esbuild.build(magmomTestConfig);
   await esbuild.build(wulffTestConfig);
+  await esbuild.build(trajectoryTestConfig);
   console.log('Build complete.');
 }
