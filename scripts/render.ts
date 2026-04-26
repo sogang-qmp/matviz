@@ -1,7 +1,7 @@
 import puppeteer from 'puppeteer';
 import * as fs from 'fs';
 import * as path from 'path';
-import { parseStructureFile } from '../src/parsers/index';
+import { parseStructureFile, parseStructureFileTraj } from '../src/parsers/index';
 import { ELEMENTS, DEFAULT_ELEMENT } from '../src/shared/elements-data';
 
 // Compact shape for embedding in the HTML template — preserves the browser-side
@@ -57,6 +57,9 @@ interface RenderOptions {
   ellipsoidContour: 0.5 | 0.9;
   // 16.4 Wulff
   wulff: Array<{ h: number; k: number; l: number; gamma: number }> | null;
+  // v0.17.3 trajectory CLI
+  frame: number;
+  allFrames: boolean;
 }
 
 function parseArgs(argv: string[]): RenderOptions {
@@ -88,6 +91,8 @@ function parseArgs(argv: string[]): RenderOptions {
     ellipsoids: false,
     ellipsoidContour: 0.5,
     wulff: null,
+    frame: 0,
+    allFrames: false,
   };
 
   const args = argv.slice(2);
@@ -157,6 +162,8 @@ function parseArgs(argv: string[]): RenderOptions {
         opts.wulff = planes;
         break;
       }
+      case '--frame': opts.frame = parseInt(args[++i]); break;
+      case '--all-frames': opts.allFrames = true; break;
       case '-h': case '--help': printHelp(); process.exit(0);
       default:
         if (!a.startsWith('-')) positional.push(a);
@@ -217,6 +224,15 @@ Options:
                          0,0,1,1.0; -1,0,0,1.0; 0,-1,0,1.0; 0,0,-1,1.0" for
                          a cube. γ is per-face surface energy (relative units).
                          Polytope rendered as semi-transparent blue mesh.
+  --frame <n>            For multi-frame trajectory files (XDATCAR/AXSF/
+                         extended XYZ), render the 0-indexed Nth frame.
+                         Default 0 (first frame). Out-of-range clamps + warns.
+                         Ignored for single-frame files.
+  --all-frames           Render every frame as a PNG sequence:
+                         <output_base>_NNNN.png (4-digit zero-padded;
+                         expands to 5-digit beyond 9999 frames). Combine
+                         with ffmpeg for gif/mp4 (see SKILL.md). Conflicts
+                         with --frame N — --all-frames wins + warns.
   --test                 Render test scene (red sphere)
   -h, --help             Show this help`);
 }
@@ -1277,13 +1293,25 @@ async function render(opts: RenderOptions) {
 
       const content = fs.readFileSync(opts.input, 'utf-8');
       const filename = path.basename(opts.input);
-      const result = parseStructureFile(content, filename);
-      const structureJSON = JSON.stringify(result.structure);
-      const volumetricJSON = result.volumetric ? JSON.stringify({
-        origin: result.volumetric.origin,
-        lattice: result.volumetric.lattice,
-        dims: result.volumetric.dims,
-        data: Array.from(result.volumetric.data),
+      // v0.17.3.1: trajectory-aware dispatch. Single-frame files wrap to
+      // length-1 (parseStructureFileTraj internal), so behavior is identical
+      // to previous parseStructureFile path when --frame is unset/0 and
+      // input is single-frame.
+      const trajResult = parseStructureFileTraj(content, filename);
+      const traj = trajResult.trajectory;
+      let frameIdx = opts.frame;
+      if (traj.frames.length > 1) {
+        if (frameIdx < 0 || frameIdx >= traj.frames.length) {
+          console.warn(`--frame ${frameIdx} out of range [0..${traj.frames.length - 1}], clamping`);
+          frameIdx = Math.max(0, Math.min(frameIdx, traj.frames.length - 1));
+        }
+      }
+      const structureJSON = JSON.stringify(traj.frames[Math.max(0, Math.min(frameIdx, traj.frames.length - 1))]);
+      const volumetricJSON = trajResult.volumetric ? JSON.stringify({
+        origin: trajResult.volumetric.origin,
+        lattice: trajResult.volumetric.lattice,
+        dims: trajResult.volumetric.dims,
+        data: Array.from(trajResult.volumetric.data),
       }) : null;
 
       html = generateStructureHTML(opts, structureJSON, volumetricJSON);

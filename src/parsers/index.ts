@@ -116,6 +116,15 @@ export function parseStructureFileTraj(content: string, filename: string): Parse
   if (lower.endsWith('.xyz')) {
     return { trajectory: parseXyzTraj(content) };
   }
+  // 17.3.1 — content-based auto-detection for trajectory formats with
+  // non-standard filenames. CLI users often copy XDATCAR to my_md.dat or
+  // similar; AXSF can lose its extension. Marker strings are unambiguous.
+  if (content.includes('Direct configuration=') || content.includes('Cartesian configuration=')) {
+    return { trajectory: parseXdatcarTraj(content) };
+  }
+  if (content.includes('ANIMSTEPS')) {
+    return parseXsfTraj(content);
+  }
 
   // Fallback: single-frame parser + wrap.
   const single = parseStructureFile(content, filename);

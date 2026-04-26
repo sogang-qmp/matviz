@@ -74,6 +74,7 @@ before reporting completion. Silent success is not success.
 | `--ellipsoids` | flag | off | Render thermal ellipsoids for atoms with anisotropic U (CIF `_atom_site_aniso_U_*`). Phong-only path. |
 | `--ellipsoid-contour` | `0.5`\|`0.9` | `0.5` | Probability contour level. Implies `--ellipsoids`. |
 | `--wulff` | `"h,k,l,γ; …"` | off | Render Wulff polytope from semicolon-separated (h,k,l,γ) tuples. γ = relative surface energy per face. |
+| `--frame` | `N` (0-indexed) | `0` | Trajectory file (XDATCAR / AXSF / extended XYZ): render the Nth frame. Out-of-range clamps with warn. Ignored for single-frame files. |
 | `--test` | flag | — | Render a test scene (red sphere) for smoke-testing |
 | `-h, --help` | flag | — | Print usage |
 
@@ -165,6 +166,17 @@ ellipsoids (eigendecomposition of Uᵢⱼ → principal axes). Default contour
 50% (χ²₃ ≈ 2.366); use `--ellipsoid-contour 0.9` for 90% (≈ 6.251). The
 90% volume is roughly 4.3× the 50% volume. Site without aniso data fall
 back to plain spheres in the same render.
+
+**MD trajectory single key frame (extract Nth frame for report figure)**
+```bash
+node {{MATVIZ_DIR}}/dist/render.js XDATCAR \
+  -o frame_50.png --frame 50 --view std
+```
+Trajectory formats are auto-detected by content (`Direct configuration=`
+for XDATCAR, `ANIMSTEPS` for AXSF) so file extension or non-standard
+filenames work. Frame index is 0-indexed; out-of-range clamps to nearest
+valid frame with a warning. To render the entire trajectory as an
+animation sequence see `--all-frames` below.
 
 **Wulff construction (Au cuboctahedron)**
 ```bash

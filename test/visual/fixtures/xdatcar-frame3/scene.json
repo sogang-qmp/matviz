@@ -1,0 +1,9 @@
+{
+  "input": "../../../fixtures/test-xdatcar-nve",
+  "view": "std",
+  "palette": "dark",
+  "width": 800,
+  "height": 600,
+  "bg": "#1e1e1e",
+  "frame": 3
+}

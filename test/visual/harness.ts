@@ -61,6 +61,7 @@ interface SceneConfig {
   ellipsoids?: boolean;
   ellipsoidContour?: 0.5 | 0.9;
   wulff?: string;
+  frame?: number;
 }
 
 interface FixtureResult {
@@ -120,6 +121,7 @@ function buildArgs(cfg: SceneConfig, outPath: string): string[] {
   if (cfg.ellipsoids) args.push('--ellipsoids');
   if (cfg.ellipsoidContour != null) args.push('--ellipsoid-contour', String(cfg.ellipsoidContour));
   if (cfg.wulff) args.push('--wulff', cfg.wulff);
+  if (cfg.frame != null) args.push('--frame', String(cfg.frame));
   return args;
 }
 
