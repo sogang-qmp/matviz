@@ -87,6 +87,9 @@ if (panelResize && sidePanel) {
     // pointer-x maps to the panel's right edge → width = pointer-x - that gap.
     const newWidth = Math.max(180, Math.min(420, e.clientX - MODE_BAR_WIDTH - 12));
     sidePanel.style.width = newWidth + 'px';
+    // Keep --side-panel-w in sync so dependent calc()s — info-pill's
+    // panel-open offset and the toolbar's max-width — track the real width.
+    document.documentElement.style.setProperty('--side-panel-w', newWidth + 'px');
   });
   window.addEventListener('pointerup', () => {
     if (resizing) debouncedSave();
@@ -1006,6 +1009,7 @@ if (savedState && savedState.schemaVersion === 1) {
   }
   if (typeof savedState.panelWidth === 'number' && savedState.panelWidth >= 180) {
     sidePanel.style.width = savedState.panelWidth + 'px';
+    document.documentElement.style.setProperty('--side-panel-w', savedState.panelWidth + 'px');
   }
   if (scA && savedState.supercell) {
     scA.value = String(savedState.supercell[0]);
