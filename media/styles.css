@@ -7,10 +7,47 @@
 :root {
   --top-bar-h: 46px;
   --mode-bar-w: 40px;
-  --side-panel-w: 200px;
-  /* left-edge of the canvas in offset layout mode; updated from main.ts
-     as the panel is collapsed/resized. */
-  --layout-offset-left: calc(var(--mode-bar-w) + var(--side-panel-w));
+  --side-panel-w: 248px;
+
+  /* ===== V2 design tokens (Floating UI redesign — see plans/v0.18.0_*) =====
+     Glass alpha layers, surfaces, lines, shadows, type scale. These get
+     applied on the chrome (toolbar, panel, info pill, axis card, help card,
+     measure HUD); CPK element colors and unrelated VSCode tokens live
+     elsewhere. */
+  --v2-glass-1: rgba(22, 22, 24, 0.72);
+  --v2-glass-2: rgba(24, 24, 26, 0.86);
+  --v2-glass-3: rgba(28, 28, 30, 0.94);
+  --v2-blur: 16px;
+  --v2-blur-sm: 10px;
+
+  --v2-line: rgba(255, 255, 255, 0.06);
+  --v2-line-strong: rgba(255, 255, 255, 0.10);
+  --v2-line-focus: rgba(0, 127, 212, 0.55);
+
+  --v2-surf-0: rgba(255, 255, 255, 0.03);
+  --v2-surf-1: rgba(255, 255, 255, 0.06);
+  --v2-surf-2: rgba(255, 255, 255, 0.10);
+  --v2-surf-accent: rgba(0, 127, 212, 0.20);
+
+  --v2-sh-1: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --v2-sh-2: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.2);
+  --v2-sh-3: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 127, 212, 0.12);
+
+  --v2-r-sm: 4px;
+  --v2-r: 6px;
+  --v2-r-lg: 8px;
+
+  --v2-t-caps: 10px;
+  --v2-t-micro: 11px;
+  --v2-t-body: 12px;
+  --v2-t-num-sm: 13px;
+  --v2-t-title: 15px;
+  --v2-t-formula: 20px;
+  --v2-t-num: 34px;
+
+  --v2-fg-1: var(--vscode-editor-foreground, #ccc);
+  --v2-fg-2: var(--vscode-descriptionForeground, #888);
+  --v2-fg-3: #666;
 }
 
 html, body {
