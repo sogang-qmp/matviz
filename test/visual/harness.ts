@@ -62,6 +62,7 @@ interface SceneConfig {
   ellipsoidContour?: 0.5 | 0.9;
   wulff?: string;
   frame?: number;
+  phases?: string[];
 }
 
 interface FixtureResult {
@@ -122,6 +123,12 @@ function buildArgs(cfg: SceneConfig, outPath: string): string[] {
   if (cfg.ellipsoidContour != null) args.push('--ellipsoid-contour', String(cfg.ellipsoidContour));
   if (cfg.wulff) args.push('--wulff', cfg.wulff);
   if (cfg.frame != null) args.push('--frame', String(cfg.frame));
+  if (cfg.phases) {
+    for (const p of cfg.phases) {
+      // Phase paths in scene.json are relative to the fixture dir (mirrors `input`).
+      args.push('--phase', path.resolve(cfg.fixtureDir, p));
+    }
+  }
   return args;
 }
 

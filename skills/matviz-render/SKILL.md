@@ -76,6 +76,7 @@ before reporting completion. Silent success is not success.
 | `--wulff` | `"h,k,l,γ; …"` | off | Render Wulff polytope from semicolon-separated (h,k,l,γ) tuples. γ = relative surface energy per face. |
 | `--frame` | `N` (0-indexed) | `0` | Trajectory file (XDATCAR / AXSF / extended XYZ): render the Nth frame. Out-of-range clamps with warn. Ignored for single-frame files. |
 | `--all-frames` | flag | off | Render every trajectory frame as a PNG sequence: `<output>_NNNN.png` (1-indexed, 4-digit zero-padded; auto-expands beyond 9999 frames). Conflicts with `--frame` (all wins + warn). |
+| `--phase` | `<file>` | — | Add a secondary structure as a transparent overlay (default offset (0,0,0), opacity 0.5). Repeatable: `--phase a.cif --phase b.cif` accumulates. Single-frame parse (first frame for trajectory phase files). |
 | `--test` | flag | — | Render a test scene (red sphere) for smoke-testing |
 | `-h, --help` | flag | — | Print usage |
 
@@ -197,6 +198,18 @@ ffmpeg -framerate 30 -i md_%04d.png \
 The Puppeteer browser is reused across frames within a single
 `--all-frames` invocation, so a 100-frame trajectory is roughly
 2 + 100·1 sec instead of 100·2 sec.
+
+**Multi-phase overlay (compare two structures in same viewport)**
+```bash
+node {{MATVIZ_DIR}}/dist/render.js relaxed.cif \
+  -o overlay.png --phase unrelaxed.cif
+```
+The primary structure renders opaque; each `--phase` file renders as
+transparent (50%) atoms in cell-overlap mode (default offset (0,0,0)).
+Multi-phase comparison stacks: `--phase a.cif --phase b.cif`. Useful for
+relaxed vs unrelaxed, DFT functional comparison, or polymorph overlay
+visualization. Combine with `--compare-to-phase` to add NN displacement
+arrows + RMSD numerical summary in stdout.
 
 **Wulff construction (Au cuboctahedron)**
 ```bash

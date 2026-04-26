@@ -60,6 +60,9 @@ interface RenderOptions {
   // v0.17.3 trajectory CLI
   frame: number;
   allFrames: boolean;
+  // v0.17.4 multi-phase overlay + comparison CLI
+  phases: string[];
+  compareToPhase: boolean;
 }
 
 function parseArgs(argv: string[]): RenderOptions {
@@ -93,6 +96,8 @@ function parseArgs(argv: string[]): RenderOptions {
     wulff: null,
     frame: 0,
     allFrames: false,
+    phases: [],
+    compareToPhase: false,
   };
 
   const args = argv.slice(2);
@@ -164,6 +169,8 @@ function parseArgs(argv: string[]): RenderOptions {
       }
       case '--frame': opts.frame = parseInt(args[++i]); break;
       case '--all-frames': opts.allFrames = true; break;
+      case '--phase': opts.phases.push(args[++i]); break;
+      case '--compare-to-phase': opts.compareToPhase = true; break;
       case '-h': case '--help': printHelp(); process.exit(0);
       default:
         if (!a.startsWith('-')) positional.push(a);
@@ -233,6 +240,16 @@ Options:
                          expands to 5-digit beyond 9999 frames). Combine
                          with ffmpeg for gif/mp4 (see SKILL.md). Conflicts
                          with --frame N — --all-frames wins + warns.
+  --phase <file>         Add a secondary structure as transparent overlay.
+                         Repeatable: --phase a.cif --phase b.cif. Default
+                         offset (0,0,0) and opacity 0.5 (cell-overlap mode).
+                         Single-frame parse (first frame for trajectory
+                         phase files).
+  --compare-to-phase     NN displacement comparison between primary and
+                         the FIRST --phase. Renders Viridis arrows + writes
+                         "[comparison] RMSD: ..." line to stdout. Requires
+                         at least one --phase. Cannot combine with
+                         --all-frames (use --frame N instead).
   --test                 Render test scene (red sphere)
   -h, --help             Show this help`);
 }
@@ -277,7 +294,7 @@ window.__renderDone = true;
 </script></body></html>`;
 }
 
-function generateStructureHTML(opts: RenderOptions, structureJSON: string, volumetricJSON: string | null): string {
+function generateStructureHTML(opts: RenderOptions, structureJSON: string, volumetricJSON: string | null, phasesJSON: string = '[]'): string {
   const threeURL = '__THREE_PATH__';
   const helpersURL = '__HELPERS_PATH__';
 
@@ -297,6 +314,8 @@ renderer.setSize(W, H, false);
 renderer.setPixelRatio(1);
 
 const structure = ${structureJSON};
+// v0.17.4.1 secondary phases (already-parsed, [] when no --phase given).
+const phases = ${phasesJSON};
 const volumetric = ${volumetricJSON || 'null'};
 const OPTS = ${JSON.stringify({
     style: opts.style,
@@ -938,6 +957,51 @@ if (expandedMagMom) {
   }
 }
 
+// --- 17.4.1 Multi-phase overlay (matches src/webview/renderer.ts rebuildSecondaryPhases) ---
+// Each --phase file is rendered as transparent Phong atoms with default
+// offset (0,0,0) and opacity 0.5. depthWrite:false + renderOrder:1 so the
+// blend reads correctly over opaque primary atoms. No bonds / boundary for
+// secondary phases (visual clutter avoidance — same policy as webview).
+if (phases.length > 0) {
+  const PHASE_OPACITY = 0.5;
+  const PHASE_OFFSET = [0, 0, 0];
+  const phaseSphereGeo = new THREE.SphereGeometry(1, 16, 12);
+  for (const phase of phases) {
+    const groups = new Map();
+    for (let i = 0; i < phase.species.length; i++) {
+      const s = phase.species[i];
+      if (!groups.has(s)) groups.set(s, []);
+      groups.get(s).push(i);
+    }
+    for (const [el, indices] of groups) {
+      const elData = getEl(el);
+      const color = getColor(el);
+      const mat = new THREE.MeshPhongMaterial({
+        color: new THREE.Color(color),
+        shininess: 30,
+        transparent: true,
+        opacity: PHASE_OPACITY,
+        depthWrite: false,
+      });
+      const mesh = new THREE.InstancedMesh(phaseSphereGeo, mat, indices.length);
+      const dummy = new THREE.Object3D();
+      const r = elData.dr;
+      for (let k = 0; k < indices.length; k++) {
+        const idx = indices[k];
+        const p = phase.positions[idx];
+        dummy.position.set(p[0] + PHASE_OFFSET[0], p[1] + PHASE_OFFSET[1], p[2] + PHASE_OFFSET[2]);
+        dummy.scale.setScalar(r);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(k, dummy.matrix);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+      mesh.renderOrder = 1;
+      scene.add(mesh);
+    }
+  }
+}
+
 // --- Detect bonds (always — needed for polyhedra even when bonds hidden) ---
 const bondParams = new Map();
 const uniqueEls = [...new Set(species)].sort();
@@ -1332,6 +1396,20 @@ async function render(opts: RenderOptions) {
         data: Array.from(trajResult.volumetric.data),
       }) : null;
 
+      // 17.4.1 multi-phase overlay: load + parse each --phase file (single-
+      // frame extracted via parseStructureFile). Pass as JSON to inline HTML.
+      const phasesData = opts.phases.map(phasePath => {
+        const phaseContent = fs.readFileSync(phasePath, 'utf-8');
+        const phaseFilename = path.basename(phasePath);
+        const phaseParsed = parseStructureFile(phaseContent, phaseFilename);
+        return {
+          species: phaseParsed.structure.species,
+          positions: phaseParsed.structure.positions,
+          lattice: phaseParsed.structure.lattice,
+        };
+      });
+      const phasesJSON = JSON.stringify(phasesData);
+
       // 17.3.2 --all-frames: render every frame as PNG sequence.
       if (opts.allFrames) {
         if (opts.frame !== 0) {
@@ -1350,7 +1428,7 @@ async function render(opts: RenderOptions) {
           const padded = String(i + 1).padStart(padWidth, '0');
           const outPath = opts.output.replace(/\.png$/i, `_${padded}.png`);
           const structureJSON = JSON.stringify(traj.frames[i]);
-          const html = generateStructureHTML(opts, structureJSON, volumetricJSON);
+          const html = generateStructureHTML(opts, structureJSON, volumetricJSON, phasesJSON);
           const ok = await renderHtmlToPng(html, outPath);
           if (!ok) { allOk = false; break; }
         }
@@ -1365,7 +1443,7 @@ async function render(opts: RenderOptions) {
           }
         }
         const structureJSON = JSON.stringify(traj.frames[Math.max(0, Math.min(frameIdx, traj.frames.length - 1))]);
-        const html = generateStructureHTML(opts, structureJSON, volumetricJSON);
+        const html = generateStructureHTML(opts, structureJSON, volumetricJSON, phasesJSON);
         const ok = await renderHtmlToPng(html, opts.output);
         if (!ok) process.exitCode = 1;
       }
