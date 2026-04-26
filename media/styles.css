@@ -116,16 +116,22 @@ html, body {
   margin: 3px 2px;
 }
 
-/* ===== Top toolbar (V2 floating glass — centered, content-sized) ===== */
+/* ===== Top toolbar (V2 floating glass — centered, responsive wrap) =====
+   Container-queried responsive: at narrow canvas widths the toolbar wraps
+   to multiple rows so all icons stay visible (rather than scrolling
+   horizontally and hiding the right end). Buttons / separators / labels
+   shrink before wrapping. */
 #top-bar {
   position: absolute;
   top: 12px;
   left: 50%;
   transform: translateX(-50%);
   display: inline-flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 0;
+  row-gap: 3px;
   padding: 4px 6px;
   background: var(--v2-glass-2);
   -webkit-backdrop-filter: blur(var(--v2-blur));
@@ -137,11 +143,35 @@ html, body {
   font-size: 14px;
   color: var(--v2-fg-1);
   z-index: 12;
-  max-width: calc(100vw - var(--mode-bar-w) - var(--side-panel-w) - 48px);
-  overflow-x: auto;
-  scrollbar-width: none;
+  max-width: calc(100vw - var(--mode-bar-w) - 32px);
+  container-type: inline-size;
+  container-name: topbar;
 }
-#top-bar::-webkit-scrollbar { display: none; }
+/* When the side panel is open, shrink toolbar's max-width so it doesn't
+   overlap. (The toolbar is centered relative to the canvas, not relative to
+   the visible work area, so we narrow rather than re-position.) */
+body.panel-open #top-bar {
+  max-width: calc(100vw - var(--mode-bar-w) - var(--side-panel-w) - 56px);
+}
+
+/* Tier 1 — toolbar narrower than 720px: hide label text (the .num-wrap
+   stepper stays so step values can still be edited), tighten button +
+   separator widths so a few more icons fit per row before wrap kicks in. */
+@container topbar (max-width: 720px) {
+  .bar-btn { min-width: 26px; height: 26px; padding: 0 4px; }
+  .bar-sep { margin: 0 4px; height: 16px; }
+  .bar-label > :not(.num-wrap) { display: none; }
+  .bar-label { margin-left: 2px; gap: 0; }
+  .axis-btn { min-width: 22px; }
+}
+
+/* Tier 2 — toolbar narrower than 480px: drop further to allow wrap onto
+   2 rows at typical narrow editor widths while keeping hit-targets sane. */
+@container topbar (max-width: 480px) {
+  .bar-btn { min-width: 24px; height: 24px; padding: 0 3px; font-size: 13px; }
+  .bar-sep { margin: 0 3px; }
+  #top-bar { padding: 3px 4px; }
+}
 
 .bar-group {
   display: inline-flex;
@@ -214,6 +244,22 @@ html, body {
   font-size: 14px;
   text-align: center;
 }
+
+/* Compact step-angle / step-zoom inputs in the floating toolbar. The label
+   ("Step(°):" / "Step(%):") is read aloud so the visible box only needs to
+   show 2-digit values — set the wrapper width explicitly and override the
+   inherited .bar-input 52px on the inner input. */
+.bar-label .num-wrap {
+  width: 38px;
+  height: 24px;
+}
+.bar-label .num-wrap .num-input {
+  width: auto;
+  font-size: 12px;
+  padding: 0 1px 0 4px;
+}
+.bar-label .num-wrap .num-steps { width: 12px; }
+.bar-label { font-size: 12px; gap: 3px; margin-left: 4px; }
 
 /* ===== Numeric stepper (full-height stacked ▲/▼; native spinners suppressed)
    Wrapper acts as the bordered box; the input itself is borderless inside.
@@ -530,17 +576,22 @@ body.panel-open #info-pill {
   border-color: var(--v2-line-focus);
 }
 
-/* ===== V2 supercell stepper — `−  N  +` per axis, no upper bound ===== */
+/* ===== V2 supercell stepper — `−  N  +` per axis, no upper bound =====
+   3 fixed-width cells, centered. Cells are intentionally narrow so the
+   supercell row reads as a tight triplet rather than stretching the full
+   panel width. */
 .sc-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  display: flex;
   gap: 6px;
+  justify-content: flex-start;
 }
 .sc {
   display: flex;
   flex-direction: column;
   gap: 4px;
   align-items: center;
+  width: 64px;
+  flex: 0 0 64px;
 }
 .sc-l {
   font-size: var(--v2-t-caps);
@@ -621,6 +672,7 @@ body.panel-open #info-pill {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 
 .prop-color {
@@ -658,38 +710,46 @@ body.panel-open #info-pill {
   accent-color: var(--vscode-focusBorder, #007fd4);
 }
 
-.prop-vis {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  accent-color: var(--vscode-focusBorder, #007fd4);
+/* Bare per-row visibility checkbox is replaced by an iOS-style .switch.sm
+   injected by setupToggleSwitches() at startup and after every dynamic
+   buildAtomPropsUI / buildBondPropsUI / buildPolyCentersUI rebuild. */
+input.prop-vis[type="checkbox"] {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .bond-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   font-size: 13px;
+  min-width: 0;
 }
 
 .bond-label {
-  flex: 1;
+  flex: 0 0 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.bond-input {
-  width: 50px;
-  height: 26px;
-  padding: 2px 3px;
-  background: var(--vscode-input-background, #3c3c3c);
-  color: var(--vscode-input-foreground, #ccc);
-  border: 1px solid var(--vscode-input-border, #555);
-  border-radius: 3px;
-  font-size: 13px;
-  text-align: center;
+/* Bond min/max use the unified .num-wrap stepper. Tighten the wrap so two
+   .num-wrap fit comfortably on a single bond row alongside the switch +
+   pair label. */
+.num-wrap.bond-num {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 24px;
 }
+.num-wrap.bond-num .num-input {
+  font-size: 12px;
+  padding: 0 2px;
+}
+.num-wrap.bond-num .num-steps { width: 14px; }
 
 .iso-slider {
   width: 100%;

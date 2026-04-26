@@ -534,13 +534,17 @@ function setupNumberStepper(input: HTMLInputElement | null) {
   if (!wrap) return;
   const min = Number(wrap.dataset.min ?? '1');
   const max = Number(wrap.dataset.max ?? '99');
+  const step = Number(wrap.dataset.step ?? '1');
+  const precision = Number(wrap.dataset.precision ?? (step >= 1 ? '0' : '2'));
   const clamp = (n: number) => Math.max(min, Math.min(max, n));
+  const fmt = (n: number) => precision > 0 ? n.toFixed(precision) : String(Math.round(n));
   const apply = (delta: number) => {
-    const cur = parseInt(input.value, 10);
+    const cur = parseFloat(input.value);
     const base = Number.isFinite(cur) ? cur : min;
-    const next = clamp(base + delta);
-    if (String(next) === input.value) return;
-    input.value = String(next);
+    const next = clamp(base + delta * step);
+    const formatted = fmt(next);
+    if (formatted === input.value) return;
+    input.value = formatted;
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
   };
@@ -552,12 +556,13 @@ function setupNumberStepper(input: HTMLInputElement | null) {
   });
   // Permit transient invalid states mid-edit; clamp on blur.
   input.addEventListener('blur', () => {
-    const n = parseInt(input.value, 10);
+    const n = parseFloat(input.value);
     if (!Number.isFinite(n)) {
-      input.value = String(min);
+      input.value = fmt(min);
     } else {
       const c = clamp(n);
-      if (String(c) !== input.value) input.value = String(c);
+      const f = fmt(c);
+      if (f !== input.value) input.value = f;
     }
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
@@ -574,21 +579,36 @@ function setupNumberStepper(input: HTMLInputElement | null) {
 // intact); a sibling .switch span renders the visual control. Walks every
 // .toggle input[type=checkbox] once at startup. Re-callable when new
 // .toggle rows are inserted dynamically (atoms/bonds/poly-centers UIs).
-function setupToggleSwitches(root: ParentNode = document) {
-  root.querySelectorAll<HTMLInputElement>('.toggle input[type="checkbox"]').forEach((input) => {
-    if (input.dataset.switchInjected === '1') return;
-    input.dataset.switchInjected = '1';
-    const sw = document.createElement('span');
-    sw.className = 'switch';
-    if (input.checked) sw.classList.add('on');
-    sw.appendChild(document.createElement('span')).className = 'switch-thumb';
-    // Insert switch right after the input. The label already wraps both
-    // (and a text <span>), so the click-toggle native label behaviour still
-    // forwards to the input regardless of where in the label the user clicks.
-    input.parentElement?.insertBefore(sw, input.nextSibling);
-    input.addEventListener('change', () => {
-      sw.classList.toggle('on', input.checked);
+function injectSwitch(input: HTMLInputElement, sm: boolean) {
+  if (input.dataset.switchInjected === '1') return;
+  input.dataset.switchInjected = '1';
+  const sw = document.createElement('span');
+  sw.className = sm ? 'switch sm' : 'switch';
+  if (input.checked) sw.classList.add('on');
+  sw.appendChild(document.createElement('span')).className = 'switch-thumb';
+  input.parentElement?.insertBefore(sw, input.nextSibling);
+  input.addEventListener('change', () => {
+    sw.classList.toggle('on', input.checked);
+  });
+  // .prop-vis is the bare per-row checkbox (not in a <label>), so clicking
+  // the inserted switch span needs an explicit forward to the input.
+  if (sm) {
+    sw.addEventListener('click', () => {
+      input.checked = !input.checked;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
     });
+  }
+}
+function setupToggleSwitches(root: ParentNode = document) {
+  // Static `.toggle` rows (large switches inside <label>).
+  root.querySelectorAll<HTMLInputElement>('.toggle input[type="checkbox"]').forEach((input) => {
+    injectSwitch(input, false);
+  });
+  // Dynamic per-row visibility checkboxes (Atoms / Bonds / Polyhedra centers
+  // lists). Smaller variant since these rows are denser. Also covers any
+  // standalone `.prop-vis` outside a `.toggle`.
+  root.querySelectorAll<HTMLInputElement>('input.prop-vis[type="checkbox"]').forEach((input) => {
+    injectSwitch(input, true);
   });
 }
 setupToggleSwitches();
@@ -1065,6 +1085,11 @@ const optionsToggle = document.getElementById('options-toggle');
 const optionsProps = document.getElementById('options-props');
 if (optionsToggle && optionsProps) initTogglePanel(optionsToggle, optionsProps, 'Options');
 
+// Overlay (formerly "Phases (overlay)") — collapsed by default per user request.
+const phasesToggleBtn = document.getElementById('phases-toggle');
+const phasesContent = document.getElementById('phases-content');
+if (phasesToggleBtn && phasesContent) initTogglePanel(phasesToggleBtn, phasesContent, 'Overlay');
+
 function updatePolyCentersVisibility() {
   const on = !!polyCheck?.checked;
   polyCentersSection.classList.toggle('hidden', !on);
@@ -1095,6 +1120,7 @@ function buildPolyCentersUI() {
     row.append(vis, label);
     polyCentersProps.appendChild(row);
   }
+  setupToggleSwitches(polyCentersProps);
 }
 
 function buildAtomPropsUI() {
@@ -1132,6 +1158,7 @@ function buildAtomPropsUI() {
     row.append(vis, label, slider, colorInput);
     atomsProps.appendChild(row);
   }
+  setupToggleSwitches(atomsProps);
 }
 
 function updateBondSkipHint() {
@@ -1159,6 +1186,40 @@ function updateBondSkipHint() {
 function buildBondPropsUI() {
   bondsProps.innerHTML = '';
   const pairs = renderer.getBondPairs();
+  // Small chevrons for the unified .num-wrap stepper (matches the SVG set in
+  // crystalEditorProvider.ts ICON.chevUpSmall / chevDnSmall).
+  const chevUp = '<svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 4.5L5 1.5l3.5 3"/></svg>';
+  const chevDn = '<svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L5 4.5l3.5-3"/></svg>';
+
+  function makeNumWrap(value: number): { wrap: HTMLSpanElement; input: HTMLInputElement } {
+    const wrap = document.createElement('span');
+    wrap.className = 'num-wrap bond-num';
+    wrap.dataset.min = '0';
+    wrap.dataset.max = '20';
+    wrap.dataset.step = '0.05';
+    wrap.dataset.precision = '2';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.inputMode = 'decimal';
+    input.className = 'bond-input num-input';
+    input.value = value.toFixed(2);
+    const steps = document.createElement('span');
+    steps.className = 'num-steps';
+    const up = document.createElement('button');
+    up.type = 'button';
+    up.className = 'num-step up';
+    up.tabIndex = -1;
+    up.innerHTML = chevUp;
+    const dn = document.createElement('button');
+    dn.type = 'button';
+    dn.className = 'num-step dn';
+    dn.tabIndex = -1;
+    dn.innerHTML = chevDn;
+    steps.append(up, dn);
+    wrap.append(input, steps);
+    return { wrap, input };
+  }
+
   for (const { pair, min, max, enabled } of pairs) {
     const row = document.createElement('div');
     row.className = 'bond-row';
@@ -1173,29 +1234,24 @@ function buildBondPropsUI() {
     label.className = 'bond-label';
     label.textContent = pair;
 
-    const minInput = document.createElement('input');
-    minInput.type = 'number';
-    minInput.className = 'bond-input';
-    minInput.value = min.toFixed(2);
-    minInput.step = '0.05';
-    minInput.title = 'min';
-
-    const maxInput = document.createElement('input');
-    maxInput.type = 'number';
-    maxInput.className = 'bond-input';
-    maxInput.value = max.toFixed(2);
-    maxInput.step = '0.05';
-    maxInput.title = 'max';
+    const minWrap = makeNumWrap(min);
+    minWrap.input.title = `${pair} bond min (Å)`;
+    const maxWrap = makeNumWrap(max);
+    maxWrap.input.title = `${pair} bond max (Å)`;
 
     const update = () => {
-      renderer.updateBondCutoff(pair, parseFloat(minInput.value) || 0, parseFloat(maxInput.value) || 0);
+      renderer.updateBondCutoff(pair, parseFloat(minWrap.input.value) || 0, parseFloat(maxWrap.input.value) || 0);
     };
-    minInput.addEventListener('change', update);
-    maxInput.addEventListener('change', update);
+    minWrap.input.addEventListener('change', update);
+    maxWrap.input.addEventListener('change', update);
 
-    row.append(vis, label, minInput, maxInput);
+    row.append(vis, label, minWrap.wrap, maxWrap.wrap);
     bondsProps.appendChild(row);
+
+    setupNumberStepper(minWrap.input);
+    setupNumberStepper(maxWrap.input);
   }
+  setupToggleSwitches(bondsProps);
 }
 
 // --- Extension messages ---

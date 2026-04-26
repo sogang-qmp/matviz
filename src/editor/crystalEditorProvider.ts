@@ -409,13 +409,15 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
       </div>
     </div>
     <div class="panel-section hidden" id="phases-section">
-      <div class="panel-label" title="Overlay structures rendered alongside the primary">Phases (overlay)</div>
-      <div id="phases-list"></div>
-      <button id="add-phase-btn" class="panel-btn full-width" title="Add a structure file to overlay">+ Add Phase…</button>
-      <div class="toggle-group" id="comparison-row">
-        <label class="toggle" title="Display NN displacement arrows from primary atoms to first secondary phase atoms (Viridis colormap)"><input type="checkbox" id="compare-toggle"><span>Compare to first phase (displacement arrows)</span></label>
+      <div class="panel-label panel-label-toggle" id="phases-toggle" title="Secondary structures overlaid alongside the primary (formerly Phases). Click to expand.">Overlay &#x25B6;</div>
+      <div id="phases-content" class="hidden">
+        <div id="phases-list"></div>
+        <button id="add-phase-btn" class="panel-btn full-width" title="Add a structure file to overlay">+ Add Overlay&hellip;</button>
+        <div class="toggle-group" id="comparison-row">
+          <label class="toggle" title="Display NN displacement arrows from primary atoms to first secondary phase atoms (Viridis colormap)"><input type="checkbox" id="compare-toggle"><span>Compare to first overlay (displacement arrows)</span></label>
+        </div>
+        <div id="comparison-stats" class="comparison-stats hidden"></div>
       </div>
-      <div id="comparison-stats" class="comparison-stats hidden"></div>
     </div>
     <div class="panel-section hidden" id="magnetic-moments-section">
       <div class="panel-label" title="Magnetic moment vectors from VASP MAGMOM (POSCAR title line) or CIF _atom_site_moment_*">Magnetic moments</div>
