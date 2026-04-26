@@ -458,6 +458,41 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     <span id="pill-meta"></span>
   </div>
 
+  <!-- Measure HUD (V2 — top-right; visible only in measure mode) -->
+  <div id="measure-hud" class="hidden" role="region" aria-label="Measurement readout">
+    <div class="measure-head">
+      <div class="measure-kinds" role="tablist">
+        <button type="button" class="measure-kind" data-kind="distance" role="tab" aria-selected="true">Distance</button>
+        <button type="button" class="measure-kind" data-kind="angle" role="tab" disabled title="Needs 3 atoms">Angle</button>
+        <button type="button" class="measure-kind" data-kind="dihedral" role="tab" disabled title="Needs 4 atoms">Dihedral</button>
+      </div>
+      <button type="button" id="measure-clear" class="measure-x" title="Clear (Esc)" aria-label="Clear measurement">${ICON.close}</button>
+    </div>
+
+    <div class="measure-value">
+      <span class="measure-num" id="measure-num">&mdash;</span>
+      <span class="measure-unit" id="measure-unit">&Aring;</span>
+    </div>
+
+    <div class="measure-pair" id="measure-pair"></div>
+
+    <div class="measure-delta hidden" id="measure-delta">
+      <div class="measure-delta-row">
+        <span class="measure-delta-k">&Delta; fractional</span>
+        <span class="measure-delta-v" id="measure-delta-frac"></span>
+      </div>
+      <div class="measure-delta-row">
+        <span class="measure-delta-k">&Delta; cartesian</span>
+        <span class="measure-delta-v" id="measure-delta-cart"></span>
+      </div>
+    </div>
+
+    <div class="measure-foot">
+      <span class="measure-hint" id="measure-hint">Click an atom to start measuring.</span>
+      <button type="button" id="measure-copy" class="measure-copy" title="Copy measurement">Copy</button>
+    </div>
+  </div>
+
   <div id="tooltip" class="hidden"></div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

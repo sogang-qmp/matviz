@@ -631,15 +631,173 @@ if (celldashCheck) celldashCheck.addEventListener('change', () => renderer.toggl
 const axisSizeSlider = document.getElementById('axis-size') as HTMLInputElement;
 if (axisSizeSlider) axisSizeSlider.addEventListener('input', () => renderer.setAxisIndicatorSize(parseInt(axisSizeSlider.value)));
 
-// --- Mode bar ---
+// ===== Measure HUD (V2 Feature 18.8) ========================================
+// Top-right glass HUD shown only in measure mode. Tracks the recently-clicked
+// atoms (`measureHistory`) and the most recent measurement value emitted by
+// the renderer (`lastMeasurement`). The renderer creates Distance / Angle /
+// Dihedral measurements at history-lengths 2 / 3 / 4 and clears its own
+// selection at length 4 — `measurePendingClear` mirrors that so the next
+// atom-select kicks off a fresh measurement cycle.
+interface PickedAtom {
+  index: number;
+  element: string;
+  cartesian: [number, number, number];
+  fractional: [number, number, number];
+}
+type MeasurementType = 'distance' | 'angle' | 'dihedral';
+interface MeasurementSnapshot {
+  type: MeasurementType;
+  value: number;
+  atoms: number[];
+}
+const measureHistory: PickedAtom[] = [];
+let lastMeasurement: MeasurementSnapshot | null = null;
+let measurePendingClear = false;
+
+const measureHud      = document.getElementById('measure-hud') as HTMLDivElement | null;
+const measureNum      = document.getElementById('measure-num') as HTMLSpanElement | null;
+const measureUnit     = document.getElementById('measure-unit') as HTMLSpanElement | null;
+const measurePair     = document.getElementById('measure-pair') as HTMLDivElement | null;
+const measureDelta    = document.getElementById('measure-delta') as HTMLDivElement | null;
+const measureDeltaFrac= document.getElementById('measure-delta-frac') as HTMLSpanElement | null;
+const measureDeltaCart= document.getElementById('measure-delta-cart') as HTMLSpanElement | null;
+const measureHint     = document.getElementById('measure-hint') as HTMLSpanElement | null;
+const measureCopy     = document.getElementById('measure-copy') as HTMLButtonElement | null;
+const measureClear    = document.getElementById('measure-clear') as HTMLButtonElement | null;
+const measureKindBtns = Array.from(
+  document.querySelectorAll<HTMLButtonElement>('.measure-kind')
+);
+
+function showMeasureHud() { measureHud?.classList.remove('hidden'); }
+function hideMeasureHud() { measureHud?.classList.add('hidden'); }
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderMeasureHud() {
+  if (!measureHud) return;
+  const n = measureHistory.length;
+  const m = lastMeasurement;
+
+  // Hero value + unit. No measurement yet → em-dash placeholder.
+  if (m) {
+    if (measureNum)  measureNum.textContent = m.value.toFixed(3);
+    if (measureUnit) measureUnit.textContent = m.type === 'distance' ? 'Å' : '°';
+  } else {
+    if (measureNum)  measureNum.textContent = '—';
+    if (measureUnit) measureUnit.textContent = 'Å';
+  }
+
+  // Atom-pair card. Ordering: pre-measurement we show all clicks; after a
+  // measurement fires we show the atoms that participated in it (the last
+  // N entries of measureHistory, where N = m.atoms.length).
+  if (measurePair) {
+    const showAtoms = m ? measureHistory.slice(-m.atoms.length) : measureHistory.slice();
+    measurePair.dataset.count = String(showAtoms.length);
+    measurePair.innerHTML = showAtoms.map((a, i) => {
+      const color = renderer.getElementColor(a.element) || '#888';
+      const cell = `<div class="measure-atom"><span class="measure-swatch" style="background:${color}"></span><div class="measure-atom-text"><div class="measure-atom-sym">${escapeHtml(a.element)}</div><div class="measure-atom-idx">#${a.index}</div></div></div>`;
+      const sep = i < showAtoms.length - 1
+        ? '<span class="measure-connector"><span class="line"></span><span class="arrow">↔</span><span class="line"></span></span>'
+        : '';
+      return cell + sep;
+    }).join('');
+  }
+
+  // Δ rows — only for distance measurements (V2 spec).
+  if (measureDelta && measureDeltaFrac && measureDeltaCart) {
+    if (m && m.type === 'distance' && measureHistory.length >= 2) {
+      const a = measureHistory[measureHistory.length - 2];
+      const b = measureHistory[measureHistory.length - 1];
+      const df = [
+        b.fractional[0] - a.fractional[0],
+        b.fractional[1] - a.fractional[1],
+        b.fractional[2] - a.fractional[2],
+      ];
+      const dc = [
+        b.cartesian[0] - a.cartesian[0],
+        b.cartesian[1] - a.cartesian[1],
+        b.cartesian[2] - a.cartesian[2],
+      ];
+      measureDeltaFrac.innerHTML = df.map((v) => `<span>${v.toFixed(3)}</span>`).join('');
+      measureDeltaCart.innerHTML = dc.map((v) => `<span>${v.toFixed(3)}</span>`).join('') +
+        '<span class="measure-delta-u">Å</span>';
+      measureDelta.classList.remove('hidden');
+    } else {
+      measureDelta.classList.add('hidden');
+    }
+  }
+
+  // Kind switcher: enable Angle when 3 atoms picked, Dihedral at 4.
+  // Active button reflects the most recent measurement type, otherwise
+  // distance is the default highlight.
+  for (const btn of measureKindBtns) {
+    const k = btn.dataset.kind as MeasurementType | undefined;
+    if (!k) continue;
+    if (k === 'distance') btn.disabled = false;
+    if (k === 'angle')    btn.disabled = n < 3;
+    if (k === 'dihedral') btn.disabled = n < 4;
+    const active = m ? m.type === k : k === 'distance';
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', String(active));
+  }
+
+  // Footer hint adapts to where in the measurement cycle we are.
+  if (measureHint) {
+    if (n === 0) measureHint.innerHTML = 'Click an atom to start measuring.';
+    else if (n === 1) measureHint.innerHTML = 'Click a 2nd atom for <b>distance</b>.';
+    else if (n === 2) measureHint.innerHTML = 'Click a 3rd atom for <b>angle</b>.';
+    else if (n === 3) measureHint.innerHTML = 'Click a 4th atom for <b>dihedral</b>.';
+    else measureHint.innerHTML = 'Click again to start a new measurement.';
+  }
+
+  if (measureCopy) measureCopy.disabled = !m;
+}
+
+function copyMeasurement() {
+  if (!lastMeasurement) return;
+  const m = lastMeasurement;
+  const atoms = measureHistory.slice(-m.atoms.length);
+  const unit = m.type === 'distance' ? 'A' : 'deg';
+  const ids = atoms.map((a) => `${a.element}#${a.index}`).join(' ');
+  const txt = `${m.type} ${ids}\t${m.value.toFixed(4)} ${unit}`;
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(txt).catch(() => { /* clipboard denied — silent */ });
+  }
+}
+
+function clearMeasurement() {
+  measureHistory.length = 0;
+  lastMeasurement = null;
+  measurePendingClear = false;
+  renderer.clearMeasurements();
+  renderMeasureHud();
+}
+
+measureCopy?.addEventListener('click', copyMeasurement);
+measureClear?.addEventListener('click', clearMeasurement);
+
 const modeNavigate = document.getElementById('mode-navigate') as HTMLButtonElement;
 const modeMeasure = document.getElementById('mode-measure') as HTMLButtonElement;
 
+let interactionMode: 'navigate' | 'measure' = 'navigate';
+
 function setMode(mode: 'navigate' | 'measure') {
+  interactionMode = mode;
   renderer.setInteractionMode(mode);
   modeNavigate.classList.toggle('active', mode === 'navigate');
   modeMeasure.classList.toggle('active', mode === 'measure');
   tooltip.classList.add('hidden');
+  if (mode === 'measure') {
+    measureHistory.length = 0;
+    lastMeasurement = null;
+    measurePendingClear = false;
+    showMeasureHud();
+    renderMeasureHud();
+  } else {
+    hideMeasureHud();
+  }
 }
 
 if (modeNavigate) modeNavigate.addEventListener('click', () => setMode('navigate'));
@@ -740,6 +898,11 @@ window.addEventListener('keydown', (e) => {
       renderer.clearSelection();
       renderer.clearMeasurements();
       tooltip.classList.add('hidden');
+      // Reset Measure HUD state so the next click starts fresh.
+      measureHistory.length = 0;
+      lastMeasurement = null;
+      measurePendingClear = false;
+      if (interactionMode === 'measure') renderMeasureHud();
       return;
   }
 });
@@ -756,8 +919,33 @@ renderer.setAtomSelectCallback((data) => {
       `Cart: (${data.cartesian[0].toFixed(3)}, ${data.cartesian[1].toFixed(3)}, ${data.cartesian[2].toFixed(3)})<br>` +
       `Frac: (${f[0].toFixed(4)}, ${f[1].toFixed(4)}, ${f[2].toFixed(4)})`;
     vscode.postMessage({ type: 'atomSelected', data });
+    // V2 Measure HUD: track click order so the HUD can render atom-pair
+    // cards and Delta rows. Mirrors renderer.selectedAtoms — after a
+    // dihedral measurement fires, the renderer clears its selection; the
+    // next atom-select wipes measureHistory so a new cycle starts clean.
+    if (interactionMode === 'measure') {
+      if (measurePendingClear) {
+        measureHistory.length = 0;
+        lastMeasurement = null;
+        measurePendingClear = false;
+      }
+      measureHistory.push({
+        index: data.index,
+        element: data.element,
+        cartesian: data.cartesian,
+        fractional: data.fractional,
+      });
+      if (measureHistory.length > 4) measureHistory.splice(0, measureHistory.length - 4);
+      renderMeasureHud();
+    }
   } else {
     tooltip.classList.add('hidden');
+    if (interactionMode === 'measure') {
+      measureHistory.length = 0;
+      lastMeasurement = null;
+      measurePendingClear = false;
+      renderMeasureHud();
+    }
   }
 });
 
@@ -766,6 +954,9 @@ renderer.setMeasurementCallback((data) => {
   tooltip.classList.remove('hidden');
   tooltip.innerHTML += `<br>${data.type}: ${data.value.toFixed(3)}${unit}`;
   vscode.postMessage({ type: 'measurement', data });
+  lastMeasurement = { type: data.type, value: data.value, atoms: data.atoms.slice() };
+  if (data.type === 'dihedral') measurePendingClear = true;
+  renderMeasureHud();
 });
 
 // --- Theme ---
