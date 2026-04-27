@@ -212,7 +212,37 @@ panels.
   happen to be stored with a large padding box may show visible seams
   between tiled copies — expected.
 
-### Multi-phase overlay (Overlay panel section)
+### Per-atom vector overlay (Vectors panel section)
+
+- A side-panel **Vectors** section appears automatically when the loaded
+  structure carries non-zero per-atom vector data. Each atom with a
+  non-zero vector gets an arrow centered on it (length ∝ |v|, direction
+  along the vector).
+- **Auto-detected sources** — no manual config required:
+  - **POSCAR**: `MAGMOM = …` on the comment line. Collinear (N tokens →
+    `[0,0,m]`) or non-collinear (3N tokens → full vector).
+  - **XSF / AXSF**: trailing columns on PRIMCOORD lines. 5 cols → scalar
+    along z; 7 cols → full vector. (XSF spec calls these "atomic forces"
+    but ASE-written XSF reuses the slot for magmoms — the panel labels
+    them as "Atomic vector (col 5–7)" so you decide the interpretation.)
+  - **Extended XYZ**: declared via the `Properties=…` schema —
+    `magmom:R:N`, `forces:R:N`, `velocities:R:N`, `displacements:R:N`
+    (`N` = 1 collinear or 3 vector).
+  - **CIF**: `_atom_site_moment_cartn_*` or
+    `_atom_site_moment_crystalaxis_*` loops.
+- A small italic sub-label under the section header shows the detected
+  kind and unit (e.g. "Magnetic moment (μB)", "Force (eV/Å)", "Velocity
+  (Å/fs)", or "Atomic vector (col 5–7)" when XSF can't disambiguate).
+- **Controls**:
+  - Show toggle (pill switch).
+  - Colormap: Red/Blue (sign-coded by v_z — intuitive for collinear
+    FM/AFM moments) or Viridis (sequential by |v| — better for forces or
+    same-sign comparisons).
+  - **Scale** slider (0.1–50, step 0.1) with paired numeric input.
+    `1×` = 1 Å arrow per unit-magnitude vector. Useful range: 0.5–2× for
+    magmom (~2 μB), 5–20× for forces (eV/Å typically <0.1).
+- All three controls (show, colormap, scale) are persisted in saved
+  state.
 
 - The side-panel **Overlay** section (collapsed by default) lets you
   load secondary structures as transparent overlays on top of the
@@ -262,7 +292,9 @@ panels.
   camera position/zoom, orthographic/perspective choice, supercell,
   per-element overrides, per-pair bond parameters, panel width and
   collapsed state, iso level, axis indicator size and **drag offset**,
-  impostor toggle, polyhedra-center selection. `layoutMode` keys from
+  impostor toggle, polyhedra-center selection, vector overlay state
+  (show toggle, colormap, scale), thermal-ellipsoid show toggle and
+  probability contour, partial-occupancy toggle. `layoutMode` keys from
   pre-v0.18 sessions are silently ignored on read (V2 is overlay-only).
   `showPolyhedra` is intentionally **not** restored so every
   file-open starts with polyhedra off.

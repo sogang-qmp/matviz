@@ -10,10 +10,11 @@
 1. Read in order: `CLAUDE.md` (architecture + workflow) → `Plan.md` (roadmap) → this file → active `plans/` pair if any.
 2. Auto-memory loads from `~/.claude/projects/-home-swshin-matviz/memory/`.
 3. **Next action** (in priority order):
-   1. Manual fixture sweep on the v0.18.0 install — open at least one of each: CIF (NaCl), POSCAR (silicon), CHGCAR with iso, AXSF trajectory. Confirm the floating chrome reads correctly on a non-trivial structure (e.g. SrTiO3 supercell with polyhedra on). If any visual regression, file as v0.18.1 patch.
-   2. Push to remote when ready (`git push` + `git push --tags`) — the v0.18.0 tag is local until then.
-   3. v0.19 kickoff — editor integration (split-pane, settings namespace, undo/redo, marketplace publish) per Plan.md. Architectural decision gate: migrate to `CustomTextEditorProvider` vs. companion text editor.
-   4. v0.17.x backlog (CLI polish — see Plan.md "v0.17.x backlog") is to-do but does not block v0.19.
+   1. v0.19 kickoff — editor integration (split-pane, settings namespace, undo/redo, marketplace publish) per Plan.md. Architectural decision gate: migrate to `CustomTextEditorProvider` vs. companion text editor.
+   2. v0.20 kickoff — symmetry detection via spglib WASM (Plan.md). Decision gate at 20.1: emscripten build vs. Rust `moyo` vs. existing npm wrapper. Synergy with v0.21 (web SPA shares the WASM artifact).
+   3. v0.21 kickoff — Web SPA on github.io (Plan.md). Decision gate at 21.1: esbuild vs. Vite for the SPA bundler. Builds on the v0.20 WASM symmetry artifact and the existing parser modules.
+   4. v0.17.x / v0.18.x CLI + UI polish backlog — see Plan.md. Non-blocking for v0.19/v0.20/v0.21.
+   5. Marketplace publish (any v0.18.x) — optional; gated on a fresh wordmark/icon raster pass since vsce strict-bans SVGs in README.
 
 ## Completed
 
