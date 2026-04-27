@@ -1,7 +1,7 @@
 # Project Status
 
-- **Version**: v0.18.0 (Floating UI / V2 redesign) shipped 2026-04-26. Adopts the V2 Floating Panels design language: glass-tokenized chrome over the 3D viewport, floating centered toolbar, rounded glass side panel, iOS-style toggle switches, style chips, V2 supercell stepper (`− N +`, no upper bound), bottom-left info pill, axis gizmo bottom-right, redesigned 4-column help overlay with digit-key shortcuts (1–4 for display style), and a top-right Measure HUD that renders distance / angle / dihedral with V2 hero typography, atom-pair card, Δ readouts, and a copy button. Earlier release v0.17.4 (CLI parity patch — `--phase` + `--compare-to-phase`) shipped 2026-04-26.
-- **Phase**: v0.18 closed. v0.19 inherits the editor-integration backlog (split-pane, settings namespace, undo/redo, marketplace) per Plan.md.
+- **Version**: v0.18.1 (polish + parser breadth patch) shipped 2026-04-27 on top of v0.18.0. Adds light-theme support for V2 chrome (rail/panel/toolbar/pill/HUD inverts on `vscode-light`), generalizes "Magnetic moments" → kind-aware "Vectors" overlay (auto-detects from POSCAR MAGMOM, XSF trailing cols, extended-XYZ Properties, CIF moments), full QE `ibrav` coverage (0..14 + signed variants, both `celldm(1..6)` and `A,B,C,cosAB,cosAC,cosBC` forms), Measure-HUD polish (no number gradient + element-colored atom symbols), and side-panel-aware viewport shift via `Camera.setViewOffset` (canvas stays full-size; only the rendered scene moves). Earlier v0.18.0 shipped 2026-04-26 (Floating UI / V2 redesign).
+- **Phase**: v0.18 closed (0.18.1 patch). v0.19 inherits the editor-integration backlog (split-pane, settings namespace, undo/redo, marketplace) per Plan.md.
 - **People**: Seungwoo Shin (twinace98)
 - **Repo**: https://github.com/twinace98/matviz.git (also pushes to `sogang-qmp` remote)
 
