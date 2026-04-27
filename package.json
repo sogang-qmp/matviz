@@ -2,7 +2,7 @@
   "name": "vscode-matviz",
   "displayName": "MatViz - Crystal Structure Viewer",
   "description": "Interactive 3D crystal structure visualization for CIF, POSCAR, XSF, XYZ, PDB, Gaussian Cube, and more",
-  "version": "0.18.1",
+  "version": "0.20.0",
   "license": "MIT",
   "publisher": "matviz",
   "repository": {
@@ -109,6 +109,53 @@
         }
       ]
     },
+    "configuration": {
+      "title": "MatViz",
+      "properties": {
+        "matviz.defaults.style": {
+          "type": "string",
+          "enum": ["ball-and-stick", "space-filling", "stick", "wireframe"],
+          "default": "ball-and-stick",
+          "description": "Default display style for newly-opened structures. Saved per-file state (localStorage) wins on return visits."
+        },
+        "matviz.defaults.palette": {
+          "type": "string",
+          "enum": ["dark", "light"],
+          "default": "dark",
+          "description": "Default CPK palette. Independent from VSCode editor theme."
+        },
+        "matviz.defaults.showBonds": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show bonds by default."
+        },
+        "matviz.defaults.showBoundary": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show boundary atoms (periodic-image duplicates on cell faces) by default."
+        },
+        "matviz.defaults.cameraMode": {
+          "type": "string",
+          "enum": ["orthographic", "perspective"],
+          "default": "orthographic",
+          "description": "Default projection. Orthographic is the crystallography norm; perspective helps inspect 3D polyhedral networks."
+        },
+        "matviz.defaults.bondCutoffPad": {
+          "type": "number",
+          "default": 0.3,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Padding (Å) added to r_A + r_B for the default bond max-cutoff. Smaller values produce sparser bond detection."
+        },
+        "matviz.defaults.axisIndicatorSize": {
+          "type": "number",
+          "default": 80,
+          "minimum": 40,
+          "maximum": 400,
+          "description": "Default axis-indicator size in pixels. Resizable in the side panel; saved per-file state wins on return visits."
+        }
+      }
+    },
     "commands": [
       {
         "command": "matviz.openInViewer",
@@ -117,6 +164,10 @@
           "light": "media/matviz-icon-light.svg",
           "dark": "media/matviz-icon-dark.svg"
         }
+      },
+      {
+        "command": "matviz.openWithText",
+        "title": "MatViz: Open Text Editor (split pane)"
       },
       {
         "command": "matviz.resetCamera",
@@ -201,6 +252,7 @@
     "typescript": "^5.7.0"
   },
   "dependencies": {
+    "@spglib/moyo-wasm": "^0.7.9",
     "puppeteer": "^24.41.0"
   }
 }

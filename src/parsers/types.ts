@@ -4,7 +4,9 @@ export interface CrystalStructure {
   positions: [number, number, number][]; // cartesian positions in Angstroms
   pbc: [boolean, boolean, boolean];
   title?: string;
-  spaceGroup?: string;
+  spaceGroup?: string;          // Hermann-Mauguin (compact form: "Fd-3m")
+  spaceGroupNumber?: number;    // 1..230 (v0.20 spglib post-parser)
+  hallNumber?: number;          // 1..530 (v0.20 spglib post-parser)
   cellParams?: { a: number; b: number; c: number; alpha: number; beta: number; gamma: number };
   symmetryOps?: string[];  // e.g., ["x,y,z", "-x+1/2,y,-z+1/2"]
 

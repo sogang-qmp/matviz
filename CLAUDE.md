@@ -28,6 +28,27 @@ Data flow: file → parser → `CrystalStructure` JSON → `postMessage` → web
 
 `src/parsers/elements.ts` (Node.js) and `src/webview/elements-data.ts` (browser) both contain element lookups. They are separate because the two bundles target different platforms. Keep them in sync.
 
+### Third-party license attribution
+
+`THIRD_PARTY_LICENSES.md` at repo root reproduces the MIT license text
+and copyright notices for every component bundled into the `.vsix`
+(currently: `three.js`, `@spglib/moyo-wasm`). When adding a new
+bundled dependency that is *redistributed* in the package — i.e.
+ends up in `dist/*` or `media/*`, not just devDependencies — append
+its license + copyright to that file and add a one-line bullet to
+README's "Third-party software" section. devDependencies that don't
+ship in the `.vsix` (build tools, test harnesses) don't need
+attribution.
+
+### spglib WASM (v0.20+) — host-side only
+
+`@spglib/moyo-wasm` runs **exclusively on the Node host** (extension activation in `src/extension.ts` + CLI startup in `scripts/render.ts`). The wrapper module `src/shared/spglibWasm.ts` is imported by both. The webview **never** loads WASM — it receives the pre-computed `spaceGroup` / `spaceGroupNumber` / `hallNumber` fields on the `CrystalStructure` payload that gets posted in. This means:
+
+- Webview CSP stays strict (no `'wasm-unsafe-eval'` needed).
+- The 521 KB `moyo_wasm_bg.wasm` ships in `dist/` (extension package) and `media/` (webview-asset directory, kept for future use only — webview doesn't read it today).
+- Init failure (corrupt/missing WASM file) is non-fatal: the parser post-pass falls back to the legacy `P1` behavior so structure loading is never broken by spglib.
+- Trajectory policy: detect symmetry on frame 0 only, copy result to all frames.
+
 ## Build
 
 ```

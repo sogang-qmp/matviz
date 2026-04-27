@@ -32,40 +32,45 @@ const ICON = {
   chevDnSmall: '<svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L5 4.5l3.5-3"/></svg>',
 };
 
-class CrystalDocument implements vscode.CustomDocument {
-  constructor(
-    public readonly uri: vscode.Uri,
-    public readonly trajectory: CrystalTrajectory,
-    public readonly volumetric?: VolumetricData
-  ) {}
+// v0.20 (was 19.1): migrated from CustomReadonlyEditorProvider<CrystalDocument>
+// to CustomTextEditorProvider. The text buffer (vscode.TextDocument) and the
+// webview now share the same document — VSCode's standard dirty state, save
+// dialog, and onDidChangeTextDocument events flow through automatically.
+// Side-by-side text editor + 3D view: edits in the text pane reflow the 3D
+// view via a debounced reparse (~250 ms after the last keystroke).
+//
+// Per-document parse cache: parseSeq + lastParse let us drop stale parse
+// results when the user types fast.
 
-  // Convenience for code paths that only care about the first frame
-  // (export, info display defaults). Trajectory-aware code reads
-  // .trajectory directly.
-  get structure(): CrystalStructure { return this.trajectory.frames[0]; }
-
-  dispose() {}
+interface ParsedContent {
+  uri: vscode.Uri;
+  trajectory: CrystalTrajectory;
+  volumetric?: VolumetricData;
+  // First-frame convenience for export / info display.
+  structure: CrystalStructure;
 }
 
-export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvider<CrystalDocument> {
+const PARSE_DEBOUNCE_MS = 250;
+
+export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
   private activeWebview: vscode.Webview | undefined;
-  private activeDocument: CrystalDocument | undefined;
+  private activeContent: ParsedContent | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
   async exportStructure(format: 'cif' | 'poscar') {
-    if (!this.activeDocument) {
+    if (!this.activeContent) {
       vscode.window.showWarningMessage('No structure open to export.');
       return;
     }
     const content = format === 'cif'
-      ? exportCif(this.activeDocument.structure)
-      : exportPoscar(this.activeDocument.structure);
+      ? exportCif(this.activeContent.structure)
+      : exportPoscar(this.activeContent.structure);
     const ext = format === 'cif' ? 'cif' : 'poscar';
     const uri = await vscode.window.showSaveDialog({
       filters: { [format.toUpperCase()]: [ext] },
       defaultUri: vscode.Uri.file(
-        this.activeDocument.uri.fsPath.replace(/\.[^.]+$/, `.${ext}`)
+        this.activeContent.uri.fsPath.replace(/\.[^.]+$/, `.${ext}`)
       ),
     });
     if (uri) {
@@ -74,41 +79,50 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     }
   }
 
-  async openCustomDocument(
-    uri: vscode.Uri,
-    _openContext: vscode.CustomDocumentOpenContext,
-    _token: vscode.CancellationToken
-  ): Promise<CrystalDocument> {
-    const data = await vscode.workspace.fs.readFile(uri);
-    const content = new TextDecoder('utf-8').decode(data);
-    const filename = path.basename(uri.fsPath);
+  /**
+   * Parse the current text-buffer contents into a `ParsedContent`. Returns
+   * null on parse failure (caller decides whether to surface a toast or
+   * silently drop a stale-edit reparse).
+   */
+  private parseDocument(document: vscode.TextDocument): ParsedContent | null {
+    const filename = path.basename(document.uri.fsPath);
     try {
-      // 17.1.0: trajectory-aware entry. For single-frame files this wraps
-      // into a 1-frame trajectory (no observable behavior change). 17.1.1+
-      // multi-frame parsers (AXSF, XDATCAR, extended XYZ) populate frames.
-      const result = parseStructureFileTraj(content, filename);
-      return new CrystalDocument(uri, result.trajectory, result.volumetric);
-    } catch (err: any) {
-      const msg = err?.message ?? String(err);
-      vscode.window.showErrorMessage(
-        `MatViz could not parse ${filename}: ${msg}`,
-        'Open as Text'
-      ).then(choice => {
-        if (choice === 'Open as Text') {
-          vscode.commands.executeCommand('vscode.openWith', uri, 'default');
-        }
-      });
-      throw err;
+      const result = parseStructureFileTraj(document.getText(), filename);
+      return {
+        uri: document.uri,
+        trajectory: result.trajectory,
+        volumetric: result.volumetric,
+        structure: result.trajectory.frames[0],
+      };
+    } catch {
+      return null;
     }
   }
 
-  async resolveCustomEditor(
-    document: CrystalDocument,
+  async resolveCustomTextEditor(
+    document: vscode.TextDocument,
     webviewPanel: vscode.WebviewPanel,
     _token: vscode.CancellationToken
   ): Promise<void> {
+    // Initial parse. On failure, show an actionable toast — the webview
+    // still mounts but with no structure loaded; the user can dismiss and
+    // edit the file in the companion text pane (which is what they see
+    // first via "Open in MatViz" → split pane).
+    let content = this.parseDocument(document);
+    if (!content) {
+      const filename = path.basename(document.uri.fsPath);
+      vscode.window.showErrorMessage(
+        `MatViz could not parse ${filename}. Open the file in the text editor to inspect it.`,
+        'Open as Text'
+      ).then(choice => {
+        if (choice === 'Open as Text') {
+          vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
+        }
+      });
+    }
+
     this.activeWebview = webviewPanel.webview;
-    this.activeDocument = document;
+    if (content) this.activeContent = content;
 
     webviewPanel.webview.options = {
       enableScripts: true,
@@ -118,36 +132,50 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
       ],
     };
 
-    webviewPanel.webview.html = this.getHtml(webviewPanel.webview);
+    // v0.20 (19.2) — read user-configurable defaults from VSCode settings.
+    // Bake them into the HTML page (`window.MATVIZ_DEFAULTS`) so the
+    // webview's renderer can pick them up BEFORE `vscode.setState`
+    // restoreState runs on return visits — settings provide initial
+    // defaults, localStorage state wins on subsequent loads of the
+    // same URI.
+    const cfg = vscode.workspace.getConfiguration('matviz.defaults');
+    const defaults = {
+      style: cfg.get<string>('style', 'ball-and-stick'),
+      palette: cfg.get<string>('palette', 'dark'),
+      showBonds: cfg.get<boolean>('showBonds', true),
+      showBoundary: cfg.get<boolean>('showBoundary', true),
+      cameraMode: cfg.get<string>('cameraMode', 'orthographic'),
+      bondCutoffPad: cfg.get<number>('bondCutoffPad', 0.3),
+      axisIndicatorSize: cfg.get<number>('axisIndicatorSize', 80),
+    };
+    webviewPanel.webview.html = this.getHtml(webviewPanel.webview, defaults);
+
+    // Helper: post the current parsed content into the webview. Splits
+    // single-frame vs trajectory load paths the same way the v0.17.1.0
+    // dispatch did. No-op if `content` is null (initial parse failure).
+    const postContentToWebview = (c: ParsedContent | null) => {
+      if (!c) return;
+      if (c.trajectory.frames.length > 1) {
+        webviewPanel.webview.postMessage({ type: 'loadTrajectory', data: c.trajectory });
+      } else {
+        webviewPanel.webview.postMessage({ type: 'loadStructure', data: c.structure });
+      }
+      if (c.volumetric) {
+        webviewPanel.webview.postMessage({
+          type: 'loadVolumetric',
+          data: {
+            origin: c.volumetric.origin,
+            lattice: c.volumetric.lattice,
+            dims: c.volumetric.dims,
+            data: Array.from(c.volumetric.data),
+          },
+        });
+      }
+    };
 
     webviewPanel.webview.onDidReceiveMessage((msg) => {
       if (msg.type === 'ready') {
-        // 17.1.0 dispatch: route multi-frame trajectories to loadTrajectory,
-        // single-frame to loadStructure (cheaper — webview skips trajectory
-        // state). Until 17.1.1 lands AXSF parsing, the trajectory always has
-        // length 1, so loadStructure is taken — backward-compat preserved.
-        if (document.trajectory.frames.length > 1) {
-          webviewPanel.webview.postMessage({
-            type: 'loadTrajectory',
-            data: document.trajectory,
-          });
-        } else {
-          webviewPanel.webview.postMessage({
-            type: 'loadStructure',
-            data: document.structure,
-          });
-        }
-        if (document.volumetric) {
-          webviewPanel.webview.postMessage({
-            type: 'loadVolumetric',
-            data: {
-              origin: document.volumetric.origin,
-              lattice: document.volumetric.lattice,
-              dims: document.volumetric.dims,
-              data: Array.from(document.volumetric.data),
-            },
-          });
-        }
+        postContentToWebview(content);
       }
       if (msg.type === 'openAsText') {
         vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
@@ -166,17 +194,47 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
       }
     });
 
+    // v0.20 (19.1) — debounced reparse on text-buffer change. Drops stale
+    // results via parseSeq so rapid typing during a slow parse doesn't
+    // produce out-of-order updates. Filters to the document this editor
+    // is viewing (multiple matviz tabs each subscribe independently).
+    let parseSeq = 0;
+    let timer: NodeJS.Timeout | null = null;
+    const changeSub = vscode.workspace.onDidChangeTextDocument((e) => {
+      if (e.document.uri.toString() !== document.uri.toString()) return;
+      if (timer) clearTimeout(timer);
+      const seq = ++parseSeq;
+      timer = setTimeout(() => {
+        if (seq !== parseSeq) return;
+        const next = this.parseDocument(document);
+        if (!next) {
+          // Parse failure during edit — keep showing the last good state.
+          // Future polish (v0.20.x): surface a "(stale: parse error)"
+          // badge in the info pill.
+          return;
+        }
+        if (seq !== parseSeq) return;
+        content = next;
+        if (webviewPanel.active || this.activeWebview === webviewPanel.webview) {
+          this.activeContent = next;
+        }
+        postContentToWebview(next);
+      }, PARSE_DEBOUNCE_MS);
+    });
+
     webviewPanel.onDidChangeViewState(() => {
       if (webviewPanel.visible) {
         this.activeWebview = webviewPanel.webview;
-        this.activeDocument = document;
+        if (content) this.activeContent = content;
       }
     });
 
     webviewPanel.onDidDispose(() => {
+      changeSub.dispose();
+      if (timer) clearTimeout(timer);
       if (this.activeWebview === webviewPanel.webview) {
         this.activeWebview = undefined;
-        this.activeDocument = undefined;
+        this.activeContent = undefined;
       }
     });
   }
@@ -185,7 +243,7 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
     this.activeWebview?.postMessage(message);
   }
 
-  private getHtml(webview: vscode.Webview): string {
+  private getHtml(webview: vscode.Webview, defaults: object): string {
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview.js')
     );
@@ -508,6 +566,7 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
   </div>
 
   <div id="tooltip" class="hidden"></div>
+  <script nonce="${nonce}">window.MATVIZ_DEFAULTS = ${JSON.stringify(defaults)};</script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

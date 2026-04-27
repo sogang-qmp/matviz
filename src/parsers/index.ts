@@ -1,4 +1,5 @@
 import { CrystalStructure, CrystalTrajectory, VolumetricData } from './types';
+import { detectSymmetry, isSpglibReady } from '../shared/spglibWasm';
 import { parseCif } from './cifParser';
 import { parsePoscar } from './poscarParser';
 import { parseXsf, parseXsfTraj } from './xsfParser';
@@ -20,7 +21,41 @@ export interface ParseTrajectoryResult {
   volumetric?: VolumetricData;  // first-frame volumetric only (v0.17 scope)
 }
 
+/**
+ * v0.20 post-parser symmetry pass. Runs spglib (`@spglib/moyo-wasm`) on
+ * every parsed structure that didn't already get a `spaceGroup` from its
+ * source file. CIF wins on conflict — its `_space_group_name_*` is taken
+ * as authoritative even when spglib would disagree.
+ *
+ * No-op when spglib hasn't been initialized in the current host process
+ * (`initSpglib*()` not yet called). The post-pass returns the original
+ * structure unchanged in that case so the rest of the pipeline keeps
+ * working — info pill simply falls back to 'P1' as in pre-v0.20.
+ */
+function withSymmetry(structure: CrystalStructure): CrystalStructure {
+  if (!isSpglibReady()) return structure;
+  // Defer to whatever the parser already extracted (typically only CIF).
+  if (structure.spaceGroup && structure.spaceGroup !== 'P1') return structure;
+  if (structure.species.length === 0) return structure;
+  const sym = detectSymmetry(structure.lattice, structure.positions, structure.species);
+  if (!sym) return structure;
+  return {
+    ...structure,
+    spaceGroup: sym.spaceGroup,
+    spaceGroupNumber: sym.spaceGroupNumber,
+    hallNumber: sym.hallNumber,
+  };
+}
+
+function withSymmetryResult(r: ParseResult): ParseResult {
+  return { ...r, structure: withSymmetry(r.structure) };
+}
+
 export function parseStructureFile(content: string, filename: string): ParseResult {
+  return withSymmetryResult(parseStructureFileRaw(content, filename));
+}
+
+function parseStructureFileRaw(content: string, filename: string): ParseResult {
   const lower = filename.toLowerCase();
 
   if (lower.endsWith('.cif')) {
@@ -100,6 +135,28 @@ export { CrystalStructure, CrystalTrajectory, VolumetricData } from './types';
  * parseStructureFile() — backward compatible.
  */
 export function parseStructureFileTraj(content: string, filename: string): ParseTrajectoryResult {
+  const r = parseStructureFileTrajRaw(content, filename);
+  // Trajectory policy (locked decision A): detect symmetry on frame 0 only,
+  // copy the result to all frames. Avoids per-frame jitter during MD/relax
+  // playback where the symmetry is invariant.
+  if (r.trajectory.frames.length > 0) {
+    const f0 = withSymmetry(r.trajectory.frames[0]);
+    r.trajectory.frames[0] = f0;
+    if (f0.spaceGroup && r.trajectory.frames.length > 1) {
+      for (let i = 1; i < r.trajectory.frames.length; i++) {
+        r.trajectory.frames[i] = {
+          ...r.trajectory.frames[i],
+          spaceGroup: f0.spaceGroup,
+          spaceGroupNumber: f0.spaceGroupNumber,
+          hallNumber: f0.hallNumber,
+        };
+      }
+    }
+  }
+  return r;
+}
+
+function parseStructureFileTrajRaw(content: string, filename: string): ParseTrajectoryResult {
   const lower = filename.toLowerCase();
 
   // 17.1.1 — AXSF multi-frame dispatch. parseXsfTraj also handles single-frame

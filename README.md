@@ -362,7 +362,7 @@ Or step-by-step:
 npm install
 npm run build
 npx @vscode/vsce package --no-dependencies
-code --install-extension vscode-matviz-0.18.1.vsix --force
+code --install-extension vscode-matviz-0.20.0.vsix --force
 npm run install-skill   # optional — only if you use Claude Code
 ```
 
@@ -409,6 +409,8 @@ Common options:
 | `--all-frames` | Render every trajectory frame as `<output>_NNNN.png` sequence (1-indexed, 4-digit padded). Combines with `ffmpeg` for gif/mp4 (see SKILL.md). Conflicts with `--frame` (all wins + warn). |
 | `--phase <file>` | Add a secondary structure as transparent overlay (default offset (0,0,0), opacity 0.5). Repeatable. Single-frame parse for trajectory phase files. |
 | `--compare-to-phase` | NN displacement arrows + `[comparison] RMSD: …` stdout summary against the first `--phase`. PBC-aware on identical lattices. Requires `--phase`; incompatible with `--all-frames`. |
+| `--info` | Print structure summary (atoms, formula, cell, volume, space group, crystal system, Hall number) to stdout. If `-o` is omitted, exits without launching the headless browser — sub-100 ms cold. Combine with `-o` for both PNG + summary. |
+| `--json` | Emit `--info` output as JSON. Implies `--info`. |
 | `--no-bonds` / `--no-boundary` / `--no-cell` | Disable bonds / boundary atoms / cell wireframe |
 
 Run `node dist/render.js --help` for the full list.
@@ -444,4 +446,17 @@ subset because its HTML page must be self-contained for Puppeteer.
 
 ## License
 
-MIT — see LICENSE file.
+MatViz is licensed under the MIT License — see [LICENSE](LICENSE).
+
+### Third-party software
+
+MatViz redistributes the following components in its `.vsix` package
+and CLI bundle. Their full license texts and copyright notices are
+reproduced in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md):
+
+- **[Three.js](https://threejs.org)** — MIT, © 2010–2024 three.js
+  authors. 3D rendering / shaders / scene graph.
+- **[@spglib/moyo-wasm](https://github.com/spglib/moyo)** — MIT or
+  Apache-2.0, © 2023 Kohei Shinohara. Crystallographic symmetry
+  detection (Hermann-Mauguin symbols, space-group numbers, Hall
+  numbers, Wyckoff positions) for non-CIF formats.

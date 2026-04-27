@@ -5,3 +5,7 @@ dist/
 .DS_Store
 .claude/settings.local.json
 test/visual/diff/
+# v0.20 — spglib WASM is a third-party redistributable from npm. The .vsix
+# package gets a fresh copy from node_modules at build time (esbuild.mjs
+# copies it into dist/ + media/). No need to track in git.
+media/moyo_wasm_bg.wasm

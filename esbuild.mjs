@@ -1,6 +1,25 @@
 import * as esbuild from 'esbuild';
+import { copyFileSync, statSync, mkdirSync } from 'node:fs';
 
 const watch = process.argv.includes('--watch');
+
+// v0.20.1 — copy spglib WASM artifact into dist/ (CLI renderer reads via fs)
+// AND media/ (webview loads via webview.asWebviewUri). Source of truth lives
+// in node_modules/@spglib/moyo-wasm/.
+function copySpglibWasm() {
+  const src = 'node_modules/@spglib/moyo-wasm/moyo_wasm_bg.wasm';
+  const size = statSync(src).size;
+  // Cap is "500 KB compressed" per v0.20 plan; raw 521 KB → ~250 KB gzipped.
+  // Hard-fail if raw exceeds 700 KB to catch upstream regressions early.
+  if (size > 700_000) {
+    throw new Error(`spglib WASM raw size ${size} bytes exceeds 700 KB ceiling — investigate before bumping the package.`);
+  }
+  mkdirSync('dist', { recursive: true });
+  mkdirSync('media', { recursive: true });
+  copyFileSync(src, 'dist/moyo_wasm_bg.wasm');
+  copyFileSync(src, 'media/moyo_wasm_bg.wasm');
+  console.log(`spglib WASM: ${(size / 1024).toFixed(1)} KB raw — copied to dist/ and media/`);
+}
 
 const extensionConfig = {
   entryPoints: ['src/extension.ts'],
@@ -141,6 +160,7 @@ if (watch) {
   await ctx2.watch();
   console.log('Watching for changes...');
 } else {
+  copySpglibWasm();
   await esbuild.build(extensionConfig);
   await esbuild.build(webviewConfig);
   await esbuild.build(cliConfig);

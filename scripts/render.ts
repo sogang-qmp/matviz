@@ -3,6 +3,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { parseStructureFile, parseStructureFileTraj } from '../src/parsers/index';
 import { ELEMENTS, DEFAULT_ELEMENT } from '../src/shared/elements-data';
+import { initSpglibSync } from '../src/shared/spglibWasm';
+
+// v0.20 — initialize spglib WASM at CLI startup so parseStructureFile()'s
+// post-pass can detect symmetry. Same artifact the extension host uses
+// (copied to dist/moyo_wasm_bg.wasm by esbuild). Failure is non-fatal: the
+// parser falls back to the legacy 'P1' behavior.
+try {
+  const wasmPath = path.join(__dirname, 'moyo_wasm_bg.wasm');
+  initSpglibSync(fs.readFileSync(wasmPath));
+} catch (err) {
+  console.warn('[matviz-cli] spglib init failed; symmetry detection disabled:', err);
+}
 
 // Compact shape for embedding in the HTML template — preserves the browser-side
 // key aliases (cr/vdw/dr) used by the existing template code.
@@ -63,6 +75,11 @@ interface RenderOptions {
   // v0.17.4 multi-phase overlay + comparison CLI
   phases: string[];
   compareToPhase: boolean;
+  // v0.20 — info-only mode (no PNG required when set; if -o is also given,
+  // both PNG and stdout summary are produced). `infoJson` switches the
+  // text format to JSON for downstream tooling.
+  info: boolean;
+  infoJson: boolean;
 }
 
 function parseArgs(argv: string[]): RenderOptions {
@@ -98,6 +115,8 @@ function parseArgs(argv: string[]): RenderOptions {
     allFrames: false,
     phases: [],
     compareToPhase: false,
+    info: false,
+    infoJson: false,
   };
 
   const args = argv.slice(2);
@@ -173,6 +192,8 @@ function parseArgs(argv: string[]): RenderOptions {
       case '--all-frames': opts.allFrames = true; break;
       case '--phase': opts.phases.push(args[++i]); break;
       case '--compare-to-phase': opts.compareToPhase = true; break;
+      case '--info': opts.info = true; break;
+      case '--json': opts.infoJson = true; opts.info = true; break;
       case '-h': case '--help': printHelp(); process.exit(0);
       default:
         if (!a.startsWith('-')) positional.push(a);
@@ -181,10 +202,12 @@ function parseArgs(argv: string[]): RenderOptions {
   }
 
   if (positional.length > 0) opts.input = positional[0];
-  if (!opts.output && opts.input) {
+  // v0.20: in --info-only mode (no -o was passed), skip the PNG-output
+  // auto-default so render() can early-return after printing.
+  if (!opts.output && opts.input && !opts.info) {
     opts.output = opts.input.replace(/\.[^.]+$/, '.png');
   }
-  if (!opts.output) opts.output = 'test_render.png';
+  if (!opts.output && !opts.info) opts.output = 'test_render.png';
 
   return opts;
 }
@@ -254,6 +277,11 @@ Options:
                          "[comparison] RMSD: ..." line to stdout. Requires
                          at least one --phase. Cannot combine with
                          --all-frames (use --frame N instead).
+  --info                 Print structure summary (atoms, lattice, space group,
+                         crystal system) to stdout. Pure info mode if -o is
+                         omitted; combines with -o to render PNG AND print.
+  --json                 Emit --info as JSON (implies --info). Useful for
+                         report-generation pipelines.
   --test                 Render test scene (red sphere)
   -h, --help             Show this help`);
 }
@@ -1474,6 +1502,73 @@ window.__renderDone = true;
 }
 
 // ---------------------------------------------------------------------------
+// v0.20 — structure info printer (text + JSON)
+// ---------------------------------------------------------------------------
+
+function printStructureInfo(opts: RenderOptions) {
+  const content = fs.readFileSync(opts.input, 'utf8');
+  const filename = path.basename(opts.input);
+  const parsed = parseStructureFile(content, filename);
+  const s = parsed.structure;
+  // Cell parameters
+  const a = Math.hypot(s.lattice[0][0], s.lattice[0][1], s.lattice[0][2]);
+  const b = Math.hypot(s.lattice[1][0], s.lattice[1][1], s.lattice[1][2]);
+  const c = Math.hypot(s.lattice[2][0], s.lattice[2][1], s.lattice[2][2]);
+  const dot = (u: number[], v: number[]) => u[0]*v[0] + u[1]*v[1] + u[2]*v[2];
+  const ang = (u: number[], v: number[], lu: number, lv: number) =>
+    Math.acos(Math.max(-1, Math.min(1, dot(u, v) / (lu * lv)))) * 180 / Math.PI;
+  const alpha = ang(s.lattice[1], s.lattice[2], b, c);
+  const beta  = ang(s.lattice[0], s.lattice[2], a, c);
+  const gamma = ang(s.lattice[0], s.lattice[1], a, b);
+  // Volume
+  const cross = [
+    s.lattice[1][1]*s.lattice[2][2] - s.lattice[1][2]*s.lattice[2][1],
+    s.lattice[1][2]*s.lattice[2][0] - s.lattice[1][0]*s.lattice[2][2],
+    s.lattice[1][0]*s.lattice[2][1] - s.lattice[1][1]*s.lattice[2][0],
+  ];
+  const volume = Math.abs(dot(s.lattice[0], cross));
+  // Formula
+  const counts: Record<string, number> = {};
+  for (const sp of s.species) counts[sp] = (counts[sp] || 0) + 1;
+  const formula = Object.entries(counts).map(([el, n]) => n > 1 ? `${el}${n}` : el).join('');
+  // Crystal system from space-group number (1..230)
+  const sgn = s.spaceGroupNumber ?? 0;
+  const crystalSystem =
+    sgn >= 195 ? 'cubic' :
+    sgn >= 168 ? 'hexagonal' :
+    sgn >= 143 ? 'trigonal' :
+    sgn >= 75  ? 'tetragonal' :
+    sgn >= 16  ? 'orthorhombic' :
+    sgn >= 3   ? 'monoclinic' :
+    sgn >= 1   ? 'triclinic' :
+    'unknown';
+  if (opts.infoJson) {
+    process.stdout.write(JSON.stringify({
+      file: filename,
+      formula,
+      atoms: s.species.length,
+      species: counts,
+      lattice: { a, b, c, alpha, beta, gamma },
+      volume,
+      spaceGroup: s.spaceGroup ?? 'P1',
+      spaceGroupNumber: s.spaceGroupNumber ?? null,
+      hallNumber: s.hallNumber ?? null,
+      crystalSystem,
+    }, null, 2) + '\n');
+  } else {
+    const lines = [
+      `Structure: ${s.species.length} atoms, ${formula}`,
+      `Lattice: a=${a.toFixed(3)}, b=${b.toFixed(3)}, c=${c.toFixed(3)}, α=${alpha.toFixed(2)}°, β=${beta.toFixed(2)}°, γ=${gamma.toFixed(2)}°`,
+      `Volume: ${volume.toFixed(2)} Å³`,
+      `Space group: ${s.spaceGroup ?? 'P1'}` + (s.spaceGroupNumber ? ` (#${s.spaceGroupNumber})` : ''),
+      `Crystal system: ${crystalSystem}`,
+    ];
+    if (s.hallNumber) lines.push(`Hall number: ${s.hallNumber}`);
+    process.stdout.write(lines.join('\n') + '\n');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main render function
 // ---------------------------------------------------------------------------
 
@@ -1487,6 +1582,13 @@ async function render(opts: RenderOptions) {
   if (opts.compareToPhase && opts.allFrames) {
     console.error('Error: --compare-to-phase + --all-frames not supported in v0.17.4');
     process.exit(1);
+  }
+
+  // v0.20 --info: print structure summary to stdout. If --info alone (no -o),
+  // exit without spinning up Puppeteer (fast path for report pipelines).
+  if (opts.info) {
+    printStructureInfo(opts);
+    if (!opts.output) return;
   }
 
   const browser = await puppeteer.launch({

@@ -1,7 +1,22 @@
 import * as vscode from 'vscode';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { CrystalEditorProvider } from './editor/crystalEditorProvider';
+import { initSpglibSync } from './shared/spglibWasm';
 
 export function activate(context: vscode.ExtensionContext) {
+  // v0.20 — initialize spglib WASM synchronously at activation. Bytes are
+  // bundled inside the .vsix at dist/moyo_wasm_bg.wasm. Failure here is
+  // non-fatal: the parser post-pass falls back to the legacy 'P1' behavior
+  // when `isSpglibReady()` returns false, so a missing/corrupt WASM file
+  // doesn't break structure loading.
+  try {
+    const wasmPath = path.join(context.extensionPath, 'dist', 'moyo_wasm_bg.wasm');
+    initSpglibSync(fs.readFileSync(wasmPath));
+  } catch (err) {
+    console.warn('[matviz] spglib init failed; symmetry detection disabled:', err);
+  }
+
   const provider = new CrystalEditorProvider(context);
 
   context.subscriptions.push(
@@ -20,6 +35,23 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       await vscode.commands.executeCommand('vscode.openWith', target, 'matviz.crystalViewer');
+    })
+  );
+
+  // v0.20 (19.1) — split-pane companion: open the text editor for the
+  // currently-active matviz tab in a beside column. Edits in the text
+  // pane reflow the 3D view via the change-event subscription in
+  // CrystalEditorProvider.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('matviz.openWithText', async (uri?: vscode.Uri) => {
+      const target = uri ?? vscode.window.activeTextEditor?.document.uri;
+      if (!target) {
+        vscode.window.showWarningMessage('MatViz: no active file to open.');
+        return;
+      }
+      await vscode.commands.executeCommand(
+        'vscode.openWith', target, 'default', vscode.ViewColumn.Beside
+      );
     })
   );
 

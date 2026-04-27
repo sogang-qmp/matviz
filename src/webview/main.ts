@@ -1,5 +1,6 @@
 import { CrystalRenderer } from './renderer';
 import { ExtensionMessage, DisplayStyle, CameraMode } from './message';
+import { UndoStack } from './undoStack';
 
 declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void;
@@ -56,6 +57,12 @@ if (topBar) {
 }
 
 const renderer = new CrystalRenderer(canvas);
+
+// v0.20 (19.3) — property-panel undo/redo stack. Records side-panel
+// edits only (element color/radius/visibility, per-pair bond min/max,
+// per-pair bond enable). Camera, selection, supercell, display style
+// are intentionally excluded. Session-scoped (not persisted).
+const undoStack = new UndoStack(50);
 
 // --- Side panel toggle (V2 is overlay-only; offset/overlay toggle removed) ---
 const panelToggle = document.getElementById('panel-toggle') as HTMLButtonElement;
@@ -1034,6 +1041,17 @@ window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
   // Skip while IME (e.g. Korean Hangul) is composing — those keypresses belong to the IME.
   if (e.isComposing || e.keyCode === 229) return;
+  // v0.20 (19.3) — property-panel undo/redo. Ctrl+Z / Cmd+Z (undo),
+  // Ctrl+Shift+Z / Cmd+Shift+Z (redo). Skips when an input/textarea
+  // is focused (the early-return above already handles that case),
+  // so the side-by-side text editor's own undo still works as
+  // expected when the text pane has focus.
+  if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyZ' || e.key === 'z' || e.key === 'Z')) {
+    if (e.shiftKey) undoStack.redo();
+    else undoStack.undo();
+    e.preventDefault();
+    return;
+  }
   if (e.code === 'Slash' && e.shiftKey) { showHelp(); e.preventDefault(); return; }
   const step = e.shiftKey ? 1 : getStepAngle();
   // Use e.code where possible so Shift-modified / IME-mapped keys still register.
@@ -1146,6 +1164,41 @@ window.addEventListener('wheel', debouncedSave);
   .forEach((el) => el?.addEventListener('change', debouncedSave));
 cameraBtn?.addEventListener('click', debouncedSave);
 paletteBtn?.addEventListener('click', debouncedSave);
+
+// v0.20 (19.2) — apply user-configurable defaults from `matviz.defaults.*`
+// VSCode settings BEFORE the localStorage state restore. Settings provide
+// initial values for fresh opens; localStorage takes precedence on return
+// visits to the same URI (the renderer's setters are idempotent so the
+// double-apply is safe).
+const matvizDefaults = (window as unknown as {
+  MATVIZ_DEFAULTS?: {
+    style?: string; palette?: string; showBonds?: boolean;
+    showBoundary?: boolean; cameraMode?: string;
+    bondCutoffPad?: number; axisIndicatorSize?: number;
+  };
+}).MATVIZ_DEFAULTS;
+if (matvizDefaults) {
+  if (matvizDefaults.style && ['ball-and-stick', 'space-filling', 'stick', 'wireframe'].includes(matvizDefaults.style)) {
+    renderer.setDisplayStyle(matvizDefaults.style as 'ball-and-stick' | 'space-filling' | 'stick' | 'wireframe');
+  }
+  if (matvizDefaults.palette && (matvizDefaults.palette === 'dark' || matvizDefaults.palette === 'light')) {
+    renderer.setColorPalette(matvizDefaults.palette);
+  }
+  if (typeof matvizDefaults.showBonds === 'boolean') renderer.setShowBonds(matvizDefaults.showBonds);
+  if (typeof matvizDefaults.showBoundary === 'boolean') renderer.setShowBoundaryAtoms(matvizDefaults.showBoundary);
+  if (matvizDefaults.cameraMode && (matvizDefaults.cameraMode === 'orthographic' || matvizDefaults.cameraMode === 'perspective')) {
+    renderer.setCameraMode(matvizDefaults.cameraMode);
+  }
+  if (typeof matvizDefaults.axisIndicatorSize === 'number' && matvizDefaults.axisIndicatorSize >= 40) {
+    renderer.setAxisIndicatorSize(matvizDefaults.axisIndicatorSize);
+  }
+  // bondCutoffPad: applied to per-pair defaults inside the renderer's
+  // bond-detection path. Setter is exposed but if not present yet, this
+  // becomes a no-op until v0.20.x wires it.
+  if (typeof matvizDefaults.bondCutoffPad === 'number' && typeof (renderer as unknown as { setBondCutoffPad?: (n: number) => void }).setBondCutoffPad === 'function') {
+    (renderer as unknown as { setBondCutoffPad: (n: number) => void }).setBondCutoffPad(matvizDefaults.bondCutoffPad);
+  }
+}
 
 const savedState = vscode.getState() as PersistedState | null;
 if (savedState && savedState.schemaVersion === 1) {
@@ -1271,7 +1324,19 @@ function buildAtomPropsUI() {
     colorInput.type = 'color';
     colorInput.className = 'prop-color';
     colorInput.value = renderer.getElementColor(el);
+    // Live preview during drag; commit (with undo recording) on 'change'.
+    let colorBefore = colorInput.value;
     colorInput.addEventListener('input', () => renderer.setElementColor(el, colorInput.value));
+    colorInput.addEventListener('change', () => {
+      const after = colorInput.value;
+      if (after === colorBefore) return;
+      const before = colorBefore;
+      colorBefore = after;
+      undoStack.record(
+        () => { renderer.setElementColor(el, before); colorInput.value = before; colorBefore = before; },
+        () => { renderer.setElementColor(el, after);  colorInput.value = after;  colorBefore = after; },
+      );
+    });
 
     const label = document.createElement('span');
     label.className = 'prop-label';
@@ -1284,13 +1349,32 @@ function buildAtomPropsUI() {
     slider.max = '1.5';
     slider.step = '0.05';
     slider.value = String(renderer.getElementRadius(el));
+    let radiusBefore = parseFloat(slider.value);
     slider.addEventListener('input', () => renderer.setElementRadius(el, parseFloat(slider.value)));
+    slider.addEventListener('change', () => {
+      const after = parseFloat(slider.value);
+      if (after === radiusBefore) return;
+      const before = radiusBefore;
+      radiusBefore = after;
+      undoStack.record(
+        () => { renderer.setElementRadius(el, before); slider.value = String(before); radiusBefore = before; },
+        () => { renderer.setElementRadius(el, after);  slider.value = String(after);  radiusBefore = after; },
+      );
+    });
 
     const vis = document.createElement('input');
     vis.type = 'checkbox';
     vis.className = 'prop-vis';
     vis.checked = renderer.getElementVisibility(el);
-    vis.addEventListener('change', () => renderer.setElementVisibility(el, vis.checked));
+    vis.addEventListener('change', () => {
+      const after = vis.checked;
+      const before = !after;
+      renderer.setElementVisibility(el, after);
+      undoStack.record(
+        () => { renderer.setElementVisibility(el, before); vis.checked = before; },
+        () => { renderer.setElementVisibility(el, after);  vis.checked = after;  },
+      );
+    });
 
     row.append(vis, label, slider, colorInput);
     atomsProps.appendChild(row);
@@ -1365,7 +1449,15 @@ function buildBondPropsUI() {
     vis.type = 'checkbox';
     vis.className = 'prop-vis';
     vis.checked = enabled;
-    vis.addEventListener('change', () => renderer.setBondPairEnabled(pair, vis.checked));
+    vis.addEventListener('change', () => {
+      const after = vis.checked;
+      const before = !after;
+      renderer.setBondPairEnabled(pair, after);
+      undoStack.record(
+        () => { renderer.setBondPairEnabled(pair, before); vis.checked = before; },
+        () => { renderer.setBondPairEnabled(pair, after);  vis.checked = after;  },
+      );
+    });
 
     const label = document.createElement('span');
     label.className = 'bond-label';
@@ -1376,11 +1468,34 @@ function buildBondPropsUI() {
     const maxWrap = makeNumWrap(max);
     maxWrap.input.title = `${pair} bond max (Å)`;
 
-    const update = () => {
-      renderer.updateBondCutoff(pair, parseFloat(minWrap.input.value) || 0, parseFloat(maxWrap.input.value) || 0);
+    let bondMinBefore = parseFloat(minWrap.input.value) || 0;
+    let bondMaxBefore = parseFloat(maxWrap.input.value) || 0;
+    const commitBondCutoff = () => {
+      const minAfter = parseFloat(minWrap.input.value) || 0;
+      const maxAfter = parseFloat(maxWrap.input.value) || 0;
+      if (minAfter === bondMinBefore && maxAfter === bondMaxBefore) return;
+      const minBefore = bondMinBefore;
+      const maxBefore = bondMaxBefore;
+      bondMinBefore = minAfter;
+      bondMaxBefore = maxAfter;
+      renderer.updateBondCutoff(pair, minAfter, maxAfter);
+      undoStack.record(
+        () => {
+          renderer.updateBondCutoff(pair, minBefore, maxBefore);
+          minWrap.input.value = minBefore.toFixed(2);
+          maxWrap.input.value = maxBefore.toFixed(2);
+          bondMinBefore = minBefore; bondMaxBefore = maxBefore;
+        },
+        () => {
+          renderer.updateBondCutoff(pair, minAfter, maxAfter);
+          minWrap.input.value = minAfter.toFixed(2);
+          maxWrap.input.value = maxAfter.toFixed(2);
+          bondMinBefore = minAfter; bondMaxBefore = maxAfter;
+        },
+      );
     };
-    minWrap.input.addEventListener('change', update);
-    maxWrap.input.addEventListener('change', update);
+    minWrap.input.addEventListener('change', commitBondCutoff);
+    maxWrap.input.addEventListener('change', commitBondCutoff);
 
     row.append(vis, label, minWrap.wrap, maxWrap.wrap);
     bondsProps.appendChild(row);
@@ -1396,6 +1511,7 @@ window.addEventListener('message', (event) => {
   const msg = event.data as ExtensionMessage;
   switch (msg.type) {
     case 'loadStructure': {
+      undoStack.clear();
       renderer.loadStructure(msg.data);
       const si = renderer.getStructureInfo();
       if (si) {
@@ -1444,6 +1560,7 @@ window.addEventListener('message', (event) => {
       // up the side-panel slider via updateTrajectorySectionVisibility().
       // 17.1.4: stop any in-progress playback before swapping data.
       trajSetPlaying(false);
+      undoStack.clear();
       renderer.loadTrajectory(msg.data);
       const f0 = msg.data.frames[0];
       const si = renderer.getStructureInfo();

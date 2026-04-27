@@ -556,6 +556,11 @@ export class CrystalRenderer {
     this.requestRender();
   }
 
+  setShowBonds(v: boolean) {
+    if (v === this.showBonds) return;
+    this.toggleBonds();
+  }
+
   resetCamera() {
     if (!this.structure) return;
     this.fitCamera();
@@ -746,6 +751,12 @@ export class CrystalRenderer {
 
   toggleBoundaryAtoms() {
     this.showBoundaryAtoms = !this.showBoundaryAtoms;
+    if (this.structure) this.rebuild(false);
+  }
+
+  setShowBoundaryAtoms(v: boolean) {
+    if (v === this.showBoundaryAtoms) return;
+    this.showBoundaryAtoms = v;
     if (this.structure) this.rebuild(false);
   }
 
@@ -1149,6 +1160,10 @@ export class CrystalRenderer {
     }
     const formula = [...counts.entries()].map(([el, n]) => n > 1 ? `${el}${n}` : el).join('');
 
+    // v0.20: structure.spaceGroup is now populated by the spglib post-parser
+    // pass on the extension host side for every parsed structure. The 'P1'
+    // fallback only fires if (a) spglib init failed (warned at activation),
+    // or (b) detectSymmetry threw (degenerate/zero-volume cell).
     return {
       spaceGroup: this.structure.spaceGroup || 'P1',
       formula,

@@ -68,10 +68,12 @@ export function parseCif(content: string): CrystalStructure {
     if (line.startsWith('_cell_angle_beta')) { beta = parseCifFloat(line); continue; }
     if (line.startsWith('_cell_angle_gamma')) { gamma = parseCifFloat(line); continue; }
 
-    // Space group
+    // Space group. Normalize to compact form (no internal whitespace)
+    // so the info pill renders consistently across parsers — matches the
+    // convention used by the v0.20 spglib post-pass.
     if (line.startsWith('_symmetry_space_group_name_H-M') || line.startsWith('_space_group_name_H-M')) {
       const parts = line.split(/\s+/);
-      spaceGroup = parts.slice(1).join(' ').replace(/['"]/g, '');
+      spaceGroup = parts.slice(1).join(' ').replace(/['"]/g, '').replace(/\s+/g, '');
       continue;
     }
 

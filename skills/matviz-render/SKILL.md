@@ -78,6 +78,8 @@ before reporting completion. Silent success is not success.
 | `--all-frames` | flag | off | Render every trajectory frame as a PNG sequence: `<output>_NNNN.png` (1-indexed, 4-digit zero-padded; auto-expands beyond 9999 frames). Conflicts with `--frame` (all wins + warn). |
 | `--phase` | `<file>` | — | Add a secondary structure as a transparent overlay (default offset (0,0,0), opacity 0.5). Repeatable: `--phase a.cif --phase b.cif` accumulates. Single-frame parse (first frame for trajectory phase files). |
 | `--compare-to-phase` | flag | off | Compute NN displacement from the primary structure to the **first** `--phase`, render Viridis-coloured arrows, and print a one-line `[comparison] RMSD: X.XXX Å (matched N, unmatched M, max …, mean …, p95 …)` summary to stdout. Same-species NN matching; PBC-aware when the two lattices are equal. Requires `--phase`; incompatible with `--all-frames`. |
+| `--info` | flag | off | Print a structure summary (atoms, formula, cell parameters, volume, space group, crystal system, Hall number) to stdout. If `-o` is omitted, exits without spinning up the headless browser — ideal for fast info-only queries. Combine with `-o` to render PNG **and** print info. |
+| `--json` | flag | off | Emit `--info` output as JSON instead of plain text. Implies `--info`. Easier to consume from report-generation pipelines (`jq`, Python, etc.). |
 | `--test` | flag | — | Render a test scene (red sphere) for smoke-testing |
 | `-h, --help` | flag | — | Print usage |
 
@@ -235,6 +237,22 @@ PBC-aware when both lattices are identical (minimum-image convention);
 otherwise straight Euclidean. Atoms without a same-species partner count
 as `unmatched`. Requires `--phase`; `--all-frames` is rejected (per-frame
 comparison is deferred to a future v0.17.x).
+
+**Quick info-only query (no PNG)** — v0.20+
+```bash
+node {{MATVIZ_DIR}}/dist/render.js silicon.poscar --info
+# Structure: 2 atoms, Si2
+# Lattice: a=3.840, b=3.840, c=3.840, α=60.00°, β=60.00°, γ=60.00°
+# Volume: 40.03 Å³
+# Space group: Fd-3m (#227)
+# Crystal system: cubic
+# Hall number: 525
+```
+Without `-o`, `--info` skips Puppeteer entirely (sub-100 ms cold). Add
+`--json` for machine-readable output. Combine with `-o foo.png` to print
+**and** render. Backed by `@spglib/moyo-wasm` symmetry detection — POSCAR,
+XSF, XYZ, PDB, Cube, CHGCAR, QE input/output, FHI-aims geometries all
+report a real space group instead of the legacy `P1` fallback.
 
 **Wulff construction (Au cuboctahedron)**
 ```bash
