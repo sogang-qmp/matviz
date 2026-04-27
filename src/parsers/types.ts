@@ -21,9 +21,18 @@ export interface CrystalStructure {
   //   share coordinates with other species (mixed sites). Default behavior
   //   (showPartialOccupancy=false) renders only the dominant species per site.
   occupancy?: number[];
-  // 16.3 magnetic moment vectors: per-atom Cartesian moment vector in μB.
-  //   [0,0,0] means no moment.
-  magMom?: Array<[number, number, number]>;
+  // Generic per-atom vector overlay (v0.18 generalization — was 16.3 magMom).
+  //   `kind` tags semantic origin; renderer is agnostic. `label`/`unit` decorate
+  //   the side-panel UI. `values` is one Cartesian vector per atom; [0,0,0]
+  //   means no overlay for that atom.
+  atomVectors?: AtomVectorField;
+}
+
+export interface AtomVectorField {
+  kind: 'magmom' | 'force' | 'velocity' | 'displacement' | 'generic';
+  label?: string;
+  unit?: string;
+  values: Array<[number, number, number]>;
 }
 
 export interface VolumetricData {
@@ -44,7 +53,7 @@ export interface VolumetricData {
  * - latticeMode === 'fixed' ⇒ frames[i].lattice === frames[0].lattice
  *   (object reference equality so renderer can short-circuit cell rebuild)
  *
- * v0.16 optional fields (thermalAniso, occupancy, magMom) live per-frame.
+ * v0.16 optional fields (thermalAniso, occupancy, atomVectors) live per-frame.
  * The first cut consumes only frame[0]'s optionals; per-frame variation is
  * deferred to v0.17.x (extended XYZ properties pipeline).
  */

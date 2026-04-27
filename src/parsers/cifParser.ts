@@ -389,7 +389,7 @@ export function parseCif(content: string): CrystalStructure {
     symmetryOps: symmetryOps.length > 0 ? symmetryOps : undefined,
     ...(thermalAniso ? { thermalAniso } : {}),
     ...(occupancy ? { occupancy } : {}),
-    ...(magMom ? { magMom } : {}),
+    ...(magMom ? { atomVectors: { kind: 'magmom' as const, label: 'Magnetic moment', unit: 'μB', values: magMom } } : {}),
   };
 }
 

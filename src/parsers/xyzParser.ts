@@ -1,4 +1,16 @@
-import { CrystalStructure, CrystalTrajectory } from './types';
+import { CrystalStructure, CrystalTrajectory, AtomVectorField } from './types';
+
+// Per-atom vector fields recognized in extended-XYZ Properties. Map from the
+// schema field name to display metadata. Anything else is ignored.
+const VECTOR_FIELD_MAP: Record<string, { kind: AtomVectorField['kind']; label: string; unit?: string }> = {
+  magmom:        { kind: 'magmom',       label: 'Magnetic moment',  unit: 'μB' },
+  magmoms:       { kind: 'magmom',       label: 'Magnetic moment',  unit: 'μB' },
+  forces:        { kind: 'force',        label: 'Force',            unit: 'eV/Å' },
+  force:         { kind: 'force',        label: 'Force',            unit: 'eV/Å' },
+  velocities:    { kind: 'velocity',     label: 'Velocity',         unit: 'Å/fs' },
+  velo:          { kind: 'velocity',     label: 'Velocity',         unit: 'Å/fs' },
+  displacements: { kind: 'displacement', label: 'Displacement',     unit: 'Å' },
+};
 
 /**
  * Parse a single XYZ frame starting at line index `start`. Returns the
@@ -10,6 +22,33 @@ import { CrystalStructure, CrystalTrajectory } from './types';
  *   line[start+1]:  comment (may contain Lattice="..." pbc="...")
  *   line[start+2..start+1+N]: atom rows ("species x y z [extra]")
  */
+/**
+ * Parse the extended-XYZ `Properties=...` schema in the comment line and
+ * locate the leftmost recognized per-atom vector field (magmom, forces,
+ * velocities, displacements). Schema is colon-separated triples
+ * `name:type:width`, e.g. `species:S:1:pos:R:3:forces:R:3`. Width 1 is a
+ * collinear scalar (promoted to [0,0,v]); width 3 is a vector. Returns null
+ * when no Properties tag is present or no recognized vector field exists.
+ */
+function findVectorColumn(comment: string): { offset: number; width: 1 | 3; meta: { kind: AtomVectorField['kind']; label: string; unit?: string } } | null {
+  const m = comment.match(/Properties=([^\s]+)/i);
+  if (!m) return null;
+  const parts = m[1].split(':');
+  if (parts.length < 3) return null;
+  let offset = 0;
+  for (let p = 0; p + 2 < parts.length; p += 3) {
+    const name = parts[p];
+    const width = parseInt(parts[p + 2]);
+    if (!Number.isFinite(width) || width <= 0) return null;
+    const meta = VECTOR_FIELD_MAP[name.toLowerCase()];
+    if (meta && (width === 1 || width === 3)) {
+      return { offset, width: width as 1 | 3, meta };
+    }
+    offset += width;
+  }
+  return null;
+}
+
 function parseXyzFrame(lines: string[], start: number): { frame: CrystalStructure; next: number } {
   let i = start;
   const nAtoms = parseInt(lines[i]);
@@ -45,6 +84,8 @@ function parseXyzFrame(lines: string[], start: number): { frame: CrystalStructur
 
   const species: string[] = [];
   const positions: [number, number, number][] = [];
+  const vecCol = findVectorColumn(comment);
+  const vecValues: Array<[number, number, number]> = [];
 
   for (let j = 0; j < nAtoms; j++) {
     if (i + j >= lines.length) {
@@ -62,11 +103,35 @@ function parseXyzFrame(lines: string[], start: number): { frame: CrystalStructur
 
     species.push(symbol);
     positions.push([parseFloat(tokens[1]), parseFloat(tokens[2]), parseFloat(tokens[3])]);
+
+    if (vecCol) {
+      const o = vecCol.offset;
+      if (vecCol.width === 3) {
+        const vx = parseFloat(tokens[o]);
+        const vy = parseFloat(tokens[o + 1]);
+        const vz = parseFloat(tokens[o + 2]);
+        vecValues.push([
+          Number.isFinite(vx) ? vx : 0,
+          Number.isFinite(vy) ? vy : 0,
+          Number.isFinite(vz) ? vz : 0,
+        ]);
+      } else {
+        const v = parseFloat(tokens[o]);
+        vecValues.push([0, 0, Number.isFinite(v) ? v : 0]);
+      }
+    }
   }
   i += nAtoms;
 
+  const hasNonzeroVec = vecCol && vecValues.some(v =>
+    Math.abs(v[0]) + Math.abs(v[1]) + Math.abs(v[2]) > 1e-8
+  );
+
   return {
-    frame: { lattice, species, positions, pbc, title: comment },
+    frame: {
+      lattice, species, positions, pbc, title: comment,
+      ...(hasNonzeroVec ? { atomVectors: { ...vecCol!.meta, values: vecValues } } : {}),
+    },
     next: i,
   };
 }

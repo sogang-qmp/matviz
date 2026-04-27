@@ -67,9 +67,9 @@ before reporting completion. Silent success is not success.
 | `--polyhedra-centers` | `El1,El2,…` | auto | Comma-separated elements used as polyhedra centers (e.g. `Ti,Fe`). Implies `--polyhedra`. |
 | `--iso` | number | off | Isosurface level (for Cube/CHGCAR/XSF with volumetric data) |
 | `--plane` | `h,k,l` | off | Add lattice plane |
-| `--magmom` | flag | off | Render magnetic-moment arrows on atoms (auto-on if structure has magMom from POSCAR title MAGMOM or CIF `_atom_site_moment_*`) |
-| `--magmom-colormap` | `redblue`\|`viridis` | `redblue` | Arrow color: `redblue` = sign-coded by mz (FM/AFM intuition); `viridis` = sequential by \|m\| |
-| `--magmom-scale` | number | `1.0` | Arrow length (Å per μB) |
+| `--vectors` | flag | off | Render per-atom vector arrows. Auto-detected from POSCAR `MAGMOM`, XSF trailing columns (cols 5–7), extended-XYZ `Properties=` (`magmom`/`forces`/`velocities`/`displacements`), CIF `_atom_site_moment_*`. Aliased as `--magmom` for backward-compat. |
+| `--vector-colormap` | `redblue`\|`viridis` | `redblue` | Arrow color: `redblue` = sign-coded by v_z (FM/AFM intuition); `viridis` = sequential by \|v\|. Alias: `--magmom-colormap`. |
+| `--vector-scale` | number | `1.0` | Arrow length (Å per unit-magnitude vector). Alias: `--magmom-scale`. |
 | `--partial-occupancy` | flag | off | Render sites with `_atom_site_occupancy` < 1 as transparent atoms (opacity = occupancy). Default off shows the dominant species opaque. |
 | `--ellipsoids` | flag | off | Render thermal ellipsoids for atoms with anisotropic U (CIF `_atom_site_aniso_U_*`). Phong-only path. |
 | `--ellipsoid-contour` | `0.5`\|`0.9` | `0.5` | Probability contour level. Implies `--ellipsoids`. |
@@ -128,25 +128,31 @@ node {{MATVIZ_DIR}}/dist/render.js graphene.xsf \
   -o graphene.png --bg transparent
 ```
 
-**Magnetic moment vectors (NiO antiferromagnet, MAGMOM in POSCAR title)**
+**Per-atom vector arrows (magmom / force / velocity / displacement)**
 ```bash
 node {{MATVIZ_DIR}}/dist/render.js NiO_POSCAR \
-  -o nio_afm.png --magmom --view a
+  -o nio_afm.png --vectors --view a
 ```
-The arrow length is proportional to |m| (default 1.0 Å per μB; tune with
-`--magmom-scale`). Red/Blue diverging colormap is sign-coded by mz
-(intuitive for collinear FM/AFM); switch to `--magmom-colormap viridis`
-for sequential colormap by |m| (better when comparing magnitudes across
-sites with the same sign).
+Generalized in v0.18 — the same overlay renders any per-atom vector field,
+not just magnetic moments. Arrow length is proportional to |v| (default
+1.0 Å per unit-magnitude; tune with `--vector-scale`). Red/Blue diverging
+colormap is sign-coded by v_z (intuitive for collinear FM/AFM moments);
+`--vector-colormap viridis` switches to sequential by |v| (better for
+forces or comparing magnitudes across same-sign sites).
 
-For VASP POSCARs the parser reads `MAGMOM = ...` from the comment line
-(line 1). Collinear (N tokens for N atoms → mz-only), non-collinear
-(3N tokens → full vector), or compressed `k*v` form (rejected). Adjacent
-INCAR auto-discovery is not yet supported — paste the MAGMOM into the
-POSCAR title or pass the file with that title rewritten.
+Auto-detection sources:
+- **POSCAR**: `MAGMOM = ...` on the comment line. Collinear (N tokens → m_z)
+  or non-collinear (3N → vector); compressed `k*v` form rejected. INCAR
+  auto-discovery not yet supported — paste MAGMOM into the title.
+- **XSF / AXSF**: trailing columns of PRIMCOORD lines. 5 cols → scalar
+  along z; 7 cols → vector. Spec ambiguity (forces vs magmom) — the side
+  panel labels these as "Atomic vector (col 5–7)".
+- **Extended XYZ**: `Properties=...:magmom:R:3` / `:forces:R:3` /
+  `:velocities:R:3` / `:displacements:R:3`. Width 1 = collinear scalar.
+- **CIF**: `_atom_site_moment_cartn_*` or `_atom_site_moment_crystalaxis_*`.
 
-CIF files use `_atom_site_moment_cartn_*` or `_atom_site_moment_crystalaxis_*`
-loops; the parser handles both.
+`--magmom`, `--magmom-colormap`, `--magmom-scale` remain accepted as
+aliases for back-compat.
 
 **Partial occupancy (mineral mixed sites)**
 ```bash

@@ -1,0 +1,13 @@
+# BCC Fe (ferromagnet) — collinear magmom test fixture.
+# Trailing 5th column is the scalar magnetic moment in μB. The XSF spec
+# nominally calls this slot "atomic force"; we treat a uniform single
+# trailing column as collinear magmom (promoted to [0,0,m]).
+CRYSTAL
+PRIMVEC
+   2.866000   0.000000   0.000000
+   0.000000   2.866000   0.000000
+   0.000000   0.000000   2.866000
+PRIMCOORD
+2 1
+Fe   0.000000   0.000000   0.000000   2.20
+Fe   1.433000   1.433000   1.433000   2.20

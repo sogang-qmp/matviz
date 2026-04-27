@@ -73,7 +73,9 @@ export function parsePoscar(content: string): CrystalStructure {
   // INCAR auto-discovery deferred to extension host (16.x).
   const magMom = parseMagmomFromTitle(title, species.length);
   const result: CrystalStructure = { lattice, species, positions, pbc: [true, true, true], title };
-  if (magMom) result.magMom = magMom;
+  if (magMom) {
+    result.atomVectors = { kind: 'magmom', label: 'Magnetic moment', unit: 'μB', values: magMom };
+  }
   return result;
 }
 

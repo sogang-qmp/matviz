@@ -1,38 +1,35 @@
 import * as THREE from 'three';
 
 /**
- * Magnetic moment vector renderer (v0.16.3).
+ * Per-atom vector arrow overlay (generalized in v0.18 from the v0.16.3
+ * magnetic-moment renderer — same geometry, agnostic to vector semantics).
  *
- * Each non-zero per-atom moment is drawn as an arrow centered on the atom:
- *   - shaft: thin cylinder (length = |m| × scale)
- *   - tip:   cone glued to the shaft end, fixed size
+ * Each non-zero per-atom vector is drawn as an arrow centered on the atom.
+ * Both shaft and tip are InstancedMesh so a structure with tens or hundreds
+ * of vectors costs O(2) draw calls regardless of count. Per-instance color
+ * (instanceColor) carries a colormap value derived from |v| or sign(v_z).
  *
- * Both shaft and tip are InstancedMesh per element so a structure with
- * tens or hundreds of moment vectors costs O(2) draw calls regardless
- * of count. Per-instance color (instanceColor) carries a colormap value
- * derived from |m| so up/down sites visually contrast.
- *
- * The full vector (vector → world-space transform) goes into the
- * instance matrix; the geometries are unit-aligned to the +z axis and
- * we rotate via Quaternion.setFromUnitVectors(z, m̂).
+ * Geometries are unit-aligned to +y and rotated via
+ * Quaternion.setFromUnitVectors(y, v̂).
  */
 
-export interface MagneticArrowInstance {
+export interface VectorArrowInstance {
   position: [number, number, number];
-  moment: [number, number, number];   // Cartesian, μB
+  vector: [number, number, number];
 }
 
 export type Colormap = 'redblue' | 'viridis';
 
-const ZERO_THRESHOLD = 1e-4;          // moments below this are skipped (no arrow)
-// Scale: 1 Å of arrow length per μB. Tuned for typical 2–4 μB systems where
-// arrows comfortably overlay the atomic radius without dominating the cell.
-const SCALE_ANGSTROM_PER_MUB = 1.0;
+const ZERO_THRESHOLD = 1e-4;
+// Scale: 1 Å of arrow length per unit-magnitude vector. Tuned for typical
+// 2–4 μB magmom systems; smaller-magnitude fields (forces in eV/Å) yield
+// proportionally shorter arrows.
+const SCALE_ANGSTROM_PER_UNIT = 1.0;
 const SHAFT_RADIUS = 0.06;
 const TIP_RADIUS = 0.18;
 const TIP_LENGTH = 0.35;
 
-export class MagneticArrowRenderer {
+export class VectorArrowRenderer {
   readonly group = new THREE.Group();
   private shaftGeo: THREE.CylinderGeometry;
   private tipGeo: THREE.ConeGeometry;
@@ -62,18 +59,18 @@ export class MagneticArrowRenderer {
    * Rebuild meshes from a flat instance list. Caller filters out zero
    * moments before passing in (so we don't waste InstancedMesh slots).
    */
-  rebuild(instances: MagneticArrowInstance[]): void {
+  rebuild(instances: VectorArrowInstance[]): void {
     this.clear();
     if (instances.length === 0) return;
 
     // Filter out zero moments (defensive — caller should already)
-    const live = instances.filter(inst => length3(inst.moment) >= ZERO_THRESHOLD);
+    const live = instances.filter(inst => length3(inst.vector) >= ZERO_THRESHOLD);
     if (live.length === 0) return;
 
     // Determine maxMag for colormap normalization.
     let maxMag = 0;
     for (const inst of live) {
-      const m = length3(inst.moment);
+      const m = length3(inst.vector);
       if (m > maxMag) maxMag = m;
     }
     if (maxMag < ZERO_THRESHOLD) maxMag = 1; // avoid divide-by-zero
@@ -92,9 +89,9 @@ export class MagneticArrowRenderer {
 
     for (let i = 0; i < live.length; i++) {
       const inst = live[i];
-      const mag = length3(inst.moment);
-      const len = mag * SCALE_ANGSTROM_PER_MUB;
-      dir.set(inst.moment[0], inst.moment[1], inst.moment[2]).normalize();
+      const mag = length3(inst.vector);
+      const len = mag * SCALE_ANGSTROM_PER_UNIT;
+      dir.set(inst.vector[0], inst.vector[1], inst.vector[2]).normalize();
       quat.setFromUnitVectors(yAxis, dir);
 
       // Shaft: positioned at center along moment, scaled to (radius,len,radius).
@@ -113,7 +110,7 @@ export class MagneticArrowRenderer {
       tipMesh.setMatrixAt(i, tipMat);
 
       // Color from sign(moment·z) for redblue, else from |m| / maxMag for sequential.
-      const c = colormapValue(this.colormap, inst.moment, mag, maxMag);
+      const c = colormapValue(this.colormap, inst.vector, mag, maxMag);
       tempColor.setRGB(c[0], c[1], c[2]);
       shaftMesh.setColorAt(i, tempColor);
       tipMesh.setColorAt(i, tempColor);
@@ -158,7 +155,7 @@ function length3(v: [number, number, number]): number {
  *            saturation by |m|/maxMag. Best for collinear AFM/FM systems.
  *   viridis: sequential by magnitude (perceptually uniform-ish 4-stop).
  */
-function colormapValue(map: Colormap, moment: [number, number, number], mag: number, maxMag: number): [number, number, number] {
+function colormapValue(map: Colormap, vector: [number, number, number], mag: number, maxMag: number): [number, number, number] {
   const t = mag / maxMag;
   if (map === 'viridis') {
     // 4-stop approximation: 0=#440154, 0.33=#3b528b, 0.67=#21918c, 1=#fde725
@@ -170,7 +167,7 @@ function colormapValue(map: Colormap, moment: [number, number, number], mag: num
     ]);
   }
   // redblue diverging: scale dominant component sign by saturation
-  const sign = moment[2] >= 0 ? 1 : -1;
+  const sign = vector[2] >= 0 ? 1 : -1;
   if (sign > 0) {
     return [1.0, 1.0 - t, 1.0 - t];   // white→red
   }

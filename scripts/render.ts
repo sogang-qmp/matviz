@@ -46,10 +46,10 @@ interface RenderOptions {
   iso: number | null;
   plane: [number, number, number] | null;
   test: boolean;
-  // 16.3 magnetic moments
-  magmom: boolean;
-  magmomColormap: 'redblue' | 'viridis';
-  magmomScale: number;
+  // Per-atom vector overlay (generalized v0.18 — was magmom-only).
+  vectors: boolean;
+  vectorColormap: 'redblue' | 'viridis';
+  vectorScale: number;
   // 16.2 partial occupancy
   partialOccupancy: boolean;
   // 16.1 thermal ellipsoids
@@ -87,9 +87,9 @@ function parseArgs(argv: string[]): RenderOptions {
     iso: null,
     plane: null,
     test: false,
-    magmom: false,
-    magmomColormap: 'redblue',
-    magmomScale: 1.0,
+    vectors: false,
+    vectorColormap: 'redblue',
+    vectorScale: 1.0,
     partialOccupancy: false,
     ellipsoids: false,
     ellipsoidContour: 0.5,
@@ -128,18 +128,20 @@ function parseArgs(argv: string[]): RenderOptions {
         break;
       case '--iso': opts.iso = parseFloat(args[++i]); break;
       case '--plane': opts.plane = args[++i].split(',').map(Number) as [number, number, number]; break;
-      case '--magmom': opts.magmom = true; break;
-      case '--magmom-colormap': {
+      case '--vectors': case '--magmom':
+        opts.vectors = true; break;
+      case '--vector-colormap': case '--magmom-colormap': {
         const v = args[++i];
         if (v !== 'redblue' && v !== 'viridis') {
-          console.error(`Invalid --magmom-colormap: ${v} (use 'redblue' or 'viridis')`);
+          console.error(`Invalid --vector-colormap: ${v} (use 'redblue' or 'viridis')`);
           process.exit(1);
         }
-        opts.magmomColormap = v;
-        opts.magmom = true;  // implies show
+        opts.vectorColormap = v;
+        opts.vectors = true;
         break;
       }
-      case '--magmom-scale': opts.magmomScale = parseFloat(args[++i]); opts.magmom = true; break;
+      case '--vector-scale': case '--magmom-scale':
+        opts.vectorScale = parseFloat(args[++i]); opts.vectors = true; break;
       case '--partial-occupancy': opts.partialOccupancy = true; break;
       case '--ellipsoids': opts.ellipsoids = true; break;
       case '--ellipsoid-contour': {
@@ -214,10 +216,12 @@ Options:
                          Implies --polyhedra. Overrides auto-detection.
   --iso <level>          Isosurface level (volumetric data only)
   --plane <h,k,l>        Add lattice plane
-  --magmom               Show magnetic-moment arrows (auto-on if structure carries
-                         magMom from POSCAR title MAGMOM or CIF _atom_site_moment_*)
-  --magmom-colormap <c>  redblue (default; sign-coded by mz)|viridis (sequential by |m|)
-  --magmom-scale <s>     Arrow length scale in Å per μB (default: 1.0)
+  --vectors              Show per-atom vector arrows. Auto-detected from POSCAR
+                         MAGMOM, XSF trailing columns (cols 5–7), extended-XYZ
+                         Properties (magmom/forces/velocities/displacements),
+                         CIF _atom_site_moment_*. (Alias: --magmom)
+  --vector-colormap <c>  redblue (default; sign-coded by v_z) | viridis (by |v|)
+  --vector-scale <s>     Arrow length scale in Å per unit (default: 1.0)
   --partial-occupancy    Render sites with _atom_site_occupancy < 1 as transparent
                          atoms with opacity = occupancy (per-site preserved). Default
                          off — full atoms shown, mixed-site overlap hidden.
@@ -337,9 +341,9 @@ const OPTS = ${JSON.stringify({
     polyhedraCenters: opts.polyhedraCenters,
     iso: opts.iso,
     plane: opts.plane,
-    magmom: opts.magmom,
-    magmomColormap: opts.magmomColormap,
-    magmomScale: opts.magmomScale,
+    vectors: opts.vectors,
+    vectorColormap: opts.vectorColormap,
+    vectorScale: opts.vectorScale,
     partialOccupancy: opts.partialOccupancy,
     ellipsoids: opts.ellipsoids,
     ellipsoidContour: opts.ellipsoidContour,
@@ -404,11 +408,11 @@ const dl2 = new THREE.DirectionalLight(0xffffff, 0.3); dl2.position.set(-5, -5, 
 const lat = structure.lattice;
 const [na, nb, nc] = OPTS.supercell;
 const species = [], positions = [];
-// 16.3 magnetic moments: track per-expanded-atom moment vector parallel to
-// species/positions so the arrow renderer below can iterate uniformly. null
-// when structure has no magMom field or --magmom is off.
-const haveMagMom = OPTS.magmom && Array.isArray(structure.magMom);
-const expandedMagMom = haveMagMom ? [] : null;
+// Per-atom vector overlay (generalized v0.18). Track per-expanded-atom vector
+// parallel to species/positions so the arrow renderer below can iterate
+// uniformly. null when structure has no atomVectors or --vectors is off.
+const haveVectors = OPTS.vectors && structure.atomVectors && Array.isArray(structure.atomVectors.values);
+const expandedVectors = haveVectors ? [] : null;
 // 16.2 partial occupancy: same parallel-array trick. Tracking the per-atom
 // occupancy lets the partial render block below pick exact opacity per site
 // (preserving Mg/Fe 0.7/0.3 mixed-site visualization) and lets the regular
@@ -436,7 +440,7 @@ for (let ia = 0; ia < na; ia++) {
           structure.positions[j][1]+off[1],
           structure.positions[j][2]+off[2],
         ]);
-        if (expandedMagMom) expandedMagMom.push(structure.magMom[j]);
+        if (expandedVectors) expandedVectors.push(structure.atomVectors!.values[j]);
         if (expandedOccupancy) expandedOccupancy.push(structure.occupancy[j] != null ? structure.occupancy[j] : 1.0);
         if (expandedAniso) expandedAniso.push(structure.thermalAniso[j] || null);
       }
@@ -482,7 +486,7 @@ if (OPTS.boundary && structure.lattice) {
             ];
             species.push(structure.species[j]);
             positions.push(cp);
-            if (expandedMagMom) expandedMagMom.push(structure.magMom[j]);
+            if (expandedVectors) expandedVectors.push(structure.atomVectors!.values[j]);
             if (expandedOccupancy) expandedOccupancy.push(structure.occupancy[j] != null ? structure.occupancy[j] : 1.0);
             if (expandedAniso) expandedAniso.push(structure.thermalAniso[j] || null);
           }
@@ -871,24 +875,22 @@ if (partialIdxSet.size > 0 && expandedOccupancy) {
   }
 }
 
-// --- 16.3 Magnetic moment arrows (matches src/webview/magneticArrowRenderer.ts) ---
-if (expandedMagMom) {
+// --- Per-atom vector arrows (matches src/webview/vectorArrowRenderer.ts) ---
+if (expandedVectors) {
   const SHAFT_RADIUS = 0.06, TIP_RADIUS = 0.18, TIP_LENGTH = 0.35, ZERO_THRESHOLD = 1e-4;
-  const SCALE = OPTS.magmomScale;
-  // Filter zero moments
+  const SCALE = OPTS.vectorScale;
   const live = [];
   let maxMag = 0;
   for (let i = 0; i < positions.length; i++) {
-    const m = expandedMagMom[i];
-    if (!m) continue;
-    const len = Math.sqrt(m[0]*m[0]+m[1]*m[1]+m[2]*m[2]);
+    const v = expandedVectors[i];
+    if (!v) continue;
+    const len = Math.sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
     if (len < ZERO_THRESHOLD) continue;
     if (len > maxMag) maxMag = len;
-    live.push({ pos: positions[i], moment: m, mag: len });
+    live.push({ pos: positions[i], vector: v, mag: len });
   }
   if (live.length > 0) {
     if (maxMag < ZERO_THRESHOLD) maxMag = 1;
-    // Colormap: same formulas as src/webview/magneticArrowRenderer.ts
     function interpStops(t, stops) {
       if (t <= 0) return stops[0];
       if (t >= 1) return stops[stops.length - 1];
@@ -903,11 +905,11 @@ if (expandedMagMom) {
       [0.129, 0.569, 0.549],
       [0.992, 0.906, 0.144],
     ];
-    function colormap(moment, mag) {
+    function colormap(vector, mag) {
       const t = mag / maxMag;
-      if (OPTS.magmomColormap === 'viridis') return interpStops(t, VIRIDIS);
-      // redblue diverging by sign(mz)
-      if (moment[2] >= 0) return [1.0, 1.0 - t, 1.0 - t];
+      if (OPTS.vectorColormap === 'viridis') return interpStops(t, VIRIDIS);
+      // redblue diverging by sign(v_z)
+      if (vector[2] >= 0) return [1.0, 1.0 - t, 1.0 - t];
       return [1.0 - t, 1.0 - t, 1.0];
     }
     const shaftGeo = new THREE.CylinderGeometry(SHAFT_RADIUS, SHAFT_RADIUS, 1, 12, 1, false);
@@ -930,7 +932,7 @@ if (expandedMagMom) {
     for (let i = 0; i < live.length; i++) {
       const inst = live[i];
       const len = inst.mag * SCALE;
-      dirV.set(inst.moment[0], inst.moment[1], inst.moment[2]).normalize();
+      dirV.set(inst.vector[0], inst.vector[1], inst.vector[2]).normalize();
       quat.setFromUnitVectors(yAxis, dirV);
       // Shaft: midpoint, scale Y to len
       sm.compose(
@@ -946,7 +948,7 @@ if (expandedMagMom) {
         new THREE.Vector3(1, 1, 1)
       );
       tipMesh.setMatrixAt(i, tm);
-      const c = colormap(inst.moment, inst.mag);
+      const c = colormap(inst.vector, inst.mag);
       tmpColor.setRGB(c[0], c[1], c[2]);
       shaftMesh.setColorAt(i, tmpColor);
       tipMesh.setColorAt(i, tmpColor);

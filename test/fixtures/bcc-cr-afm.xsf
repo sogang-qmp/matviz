@@ -1,0 +1,13 @@
+# BCC Cr (G-type antiferromagnet) — non-collinear magmom test fixture.
+# Trailing 5–7 columns are mx my mz (μB). Cr's nearest-neighbor moments
+# point antiparallel; here we tilt them slightly off-z to exercise the
+# vector path (not pure collinear).
+CRYSTAL
+PRIMVEC
+   2.910000   0.000000   0.000000
+   0.000000   2.910000   0.000000
+   0.000000   0.000000   2.910000
+PRIMCOORD
+2 1
+Cr   0.000000   0.000000   0.000000    0.30   0.10    1.95
+Cr   1.455000   1.455000   1.455000   -0.30  -0.10   -1.95

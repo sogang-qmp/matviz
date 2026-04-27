@@ -421,14 +421,15 @@ export class CrystalEditorProvider implements vscode.CustomReadonlyEditorProvide
         <div id="comparison-stats" class="comparison-stats hidden"></div>
       </div>
     </div>
-    <div class="panel-section hidden" id="magnetic-moments-section">
-      <div class="panel-label" title="Magnetic moment vectors from VASP MAGMOM (POSCAR title line) or CIF _atom_site_moment_*">Magnetic moments</div>
+    <div class="panel-section hidden" id="atom-vectors-section">
+      <div class="panel-label" title="Per-atom vector overlay (magnetic moments, forces, velocities, displacements). Auto-detected from MAGMOM tags, XSF trailing columns, extended-XYZ Properties, or CIF _atom_site_moment_*.">Vectors</div>
+      <div class="vec-kind-label" id="vec-kind-label"></div>
       <div class="toggle-group">
-        <label class="toggle" title="Render arrows on atoms with non-zero magnetic moment (length ∝ |m|, color by colormap)"><input type="checkbox" id="magmom-check"><span>Show moments</span></label>
+        <label class="toggle" title="Render arrows on atoms with non-zero vector data (length ∝ |v|, color by colormap)"><input type="checkbox" id="vector-check"><span>Show arrows</span></label>
       </div>
-      <div class="toggle-group" id="magnetic-colormap-row" title="Colormap for arrow color">
-        <label class="toggle"><input type="radio" name="mag-colormap" value="redblue" id="mag-cmap-redblue" checked><span>Red/Blue</span></label>
-        <label class="toggle"><input type="radio" name="mag-colormap" value="viridis" id="mag-cmap-viridis"><span>Viridis</span></label>
+      <div class="toggle-group" id="vector-colormap-row" title="Colormap for arrow color">
+        <label class="toggle"><input type="radio" name="vec-colormap" value="redblue" id="vec-cmap-redblue" checked><span>Red/Blue</span></label>
+        <label class="toggle"><input type="radio" name="vec-colormap" value="viridis" id="vec-cmap-viridis"><span>Viridis</span></label>
       </div>
     </div>
     <div class="panel-section">

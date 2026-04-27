@@ -5,6 +5,10 @@
   "version": "0.18.0",
   "license": "MIT",
   "publisher": "matviz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/twinace98/matviz.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },

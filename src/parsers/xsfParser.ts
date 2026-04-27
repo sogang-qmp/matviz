@@ -1,11 +1,53 @@
-import { CrystalStructure, CrystalTrajectory, VolumetricData } from './types';
+import { CrystalStructure, CrystalTrajectory, VolumetricData, AtomVectorField } from './types';
 import { getElementByNumber } from '../shared/elements-data';
+
+/**
+ * Auto-detect trailing vector data in a batch of PRIMCOORD/ATOMS atom rows.
+ * The XSF spec calls cols 5–7 "atomic forces", but ASE-written XSF reuses the
+ * same slots for magnetic moments (collinear → 1 trailing column, non-collinear
+ * → 3). We surface them as a generic vector field; the user can interpret the
+ * arrows as forces or moments based on their source. Returns null when token
+ * counts are mixed or no atom carries trailing data.
+ */
+function extractAtomVectorsFromRows(rows: string[][]): AtomVectorField | null {
+  if (rows.length === 0) return null;
+  let minExtra = Infinity;
+  for (const r of rows) {
+    const extra = r.length - 4;
+    if (extra < 0) return null;
+    if (extra < minExtra) minExtra = extra;
+  }
+  if (minExtra >= 3) {
+    const values: Array<[number, number, number]> = [];
+    for (const r of rows) {
+      const mx = parseFloat(r[4]);
+      const my = parseFloat(r[5]);
+      const mz = parseFloat(r[6]);
+      if (!Number.isFinite(mx) || !Number.isFinite(my) || !Number.isFinite(mz)) return null;
+      values.push([mx, my, mz]);
+    }
+    if (values.every(v => Math.abs(v[0]) + Math.abs(v[1]) + Math.abs(v[2]) < 1e-8)) return null;
+    return { kind: 'generic', label: 'Atomic vector (col 5–7)', values };
+  }
+  if (minExtra === 1) {
+    const values: Array<[number, number, number]> = [];
+    for (const r of rows) {
+      const m = parseFloat(r[4]);
+      if (!Number.isFinite(m)) return null;
+      values.push([0, 0, m]);
+    }
+    if (values.every(v => Math.abs(v[2]) < 1e-8)) return null;
+    return { kind: 'generic', label: 'Atomic scalar (col 5, along z)', values };
+  }
+  return null;
+}
 
 export function parseXsf(content: string): CrystalStructure & { volumetric?: VolumetricData } {
   const lines = content.split('\n');
   let lattice: [number, number, number][] = [];
   const species: string[] = [];
   const positions: [number, number, number][] = [];
+  const atomRows: string[][] = [];
   let pbc: [boolean, boolean, boolean] = [false, false, false];
   let title = '';
 
@@ -63,6 +105,7 @@ export function parseXsf(content: string): CrystalStructure & { volumetric?: Vol
           parseFloat(tokens[2]),
           parseFloat(tokens[3]),
         ]);
+        atomRows.push(tokens);
       }
       i += natoms; continue;
     }
@@ -81,6 +124,7 @@ export function parseXsf(content: string): CrystalStructure & { volumetric?: Vol
           }
           species.push(symbol);
           positions.push([parseFloat(tokens[1]), parseFloat(tokens[2]), parseFloat(tokens[3])]);
+          atomRows.push(tokens);
           i++; continue;
         }
       }
@@ -100,7 +144,9 @@ export function parseXsf(content: string): CrystalStructure & { volumetric?: Vol
     volumetric = parseDatagrid3D(content.slice(datagridIdx));
   }
 
-  return { lattice, species, positions, pbc, title, volumetric };
+  const atomVectors = extractAtomVectorsFromRows(atomRows) ?? undefined;
+
+  return { lattice, species, positions, pbc, title, volumetric, atomVectors };
 }
 
 /**
@@ -153,7 +199,7 @@ export function parseXsfTraj(content: string): { trajectory: CrystalTrajectory; 
   // PRIMVEC / PRIMCOORD blocks.
   let sharedLattice: [number, number, number][] | null = null;
   const perFrameLattices: ([number, number, number][] | null)[] = new Array(animSteps).fill(null);
-  const frameAtoms: { species: string[]; positions: [number, number, number][] }[] = [];
+  const frameAtoms: { species: string[]; positions: [number, number, number][]; rows: string[][] }[] = [];
 
   let i = 0;
   while (i < lines.length) {
@@ -188,6 +234,7 @@ export function parseXsfTraj(content: string): { trajectory: CrystalTrajectory; 
 
       const species: string[] = [];
       const positions: [number, number, number][] = [];
+      const rows: string[][] = [];
       for (let j = 0; j < natoms; j++) {
         const lineTokens = lines[i + j].trim().split(/\s+/);
         const first = lineTokens[0];
@@ -203,12 +250,13 @@ export function parseXsfTraj(content: string): { trajectory: CrystalTrajectory; 
           parseFloat(lineTokens[2]),
           parseFloat(lineTokens[3]),
         ]);
+        rows.push(lineTokens);
       }
       // Pad frameAtoms array if frameIdx is out of order
       while (frameAtoms.length <= frameIdx) {
-        frameAtoms.push({ species: [], positions: [] });
+        frameAtoms.push({ species: [], positions: [], rows: [] });
       }
-      frameAtoms[frameIdx] = { species, positions };
+      frameAtoms[frameIdx] = { species, positions, rows };
       i += natoms; continue;
     }
 
@@ -229,12 +277,14 @@ export function parseXsfTraj(content: string): { trajectory: CrystalTrajectory; 
     const lat = hasPerFrameLattice
       ? (perFrameLattices[k] || sharedLattice || fallback)
       : fallback;
+    const atomVectors = extractAtomVectorsFromRows(frameAtoms[k].rows) ?? undefined;
     frames.push({
       lattice: lat,
       species: frameAtoms[k].species,
       positions: frameAtoms[k].positions,
       pbc,
       title,
+      atomVectors,
     });
   }
 

@@ -1,7 +1,7 @@
 # MatViz — Crystal Structure Viewer for VSCode
 
 <p align="center">
-  <img src="media/matviz-wordmark.svg" alt="MatViz — Crystal Structure Viewer" width="320" />
+  <img src="media/matviz-wordmark.png" alt="MatViz — Crystal Structure Viewer" width="320" />
 </p>
 
 Interactive 3D crystal structure visualization as a VSCode extension,
@@ -389,9 +389,9 @@ Common options:
 | `--polyhedra-centers Ti,Fe` | Comma-separated list of polyhedra-center elements (implies `--polyhedra`) |
 | `--iso <level>` | Isosurface level for volumetric files (both +level and −level are rendered) |
 | `--plane h,k,l` | Add a lattice plane by Miller indices |
-| `--magmom` | Render magnetic-moment arrows on atoms (auto-on if POSCAR title has `MAGMOM = ...` or CIF carries `_atom_site_moment_*`) |
-| `--magmom-colormap <m>` | Arrow color: `redblue` (default; sign-coded by mz) or `viridis` (sequential by \|m\|) |
-| `--magmom-scale <s>` | Arrow length, Å per μB (default `1.0`) |
+| `--vectors` | Render per-atom vector arrows. Auto-detected from POSCAR `MAGMOM`, XSF trailing columns (cols 5–7), extended-XYZ `Properties=` (`magmom`/`forces`/`velocities`/`displacements`), CIF `_atom_site_moment_*`. Aliased as `--magmom`. |
+| `--vector-colormap <m>` | Arrow color: `redblue` (default; sign-coded by v_z) or `viridis` (sequential by \|v\|). Alias: `--magmom-colormap`. |
+| `--vector-scale <s>` | Arrow length, Å per unit-magnitude vector (default `1.0`). Alias: `--magmom-scale`. |
 | `--partial-occupancy` | Render sites with `_atom_site_occupancy` < 1 as transparent atoms (opacity = occupancy ratio). Default off — dominant species shown opaque. |
 | `--ellipsoids` | Render thermal ellipsoids for atoms with anisotropic U (CIF `_atom_site_aniso_U_*`). Phong-only path. |
 | `--ellipsoid-contour <c>` | Probability contour level: `0.5` (default) or `0.9`. Implies `--ellipsoids`. |

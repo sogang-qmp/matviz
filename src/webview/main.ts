@@ -70,7 +70,16 @@ const SVG_CHEV_R = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" 
 // `panel-open` body class drives layout that depends on whether the side
 // panel is visible (e.g. info-pill horizontal offset in Feature 18.6d).
 function applyPanelOpenClass() {
-  document.body.classList.toggle('panel-open', !sidePanel.classList.contains('collapsed'));
+  const open = !sidePanel.classList.contains('collapsed');
+  document.body.classList.toggle('panel-open', open);
+  // Shift the 3D viewport so the structure clears the side panel without
+  // shrinking the canvas. The shift = L/2 where L is the left-edge offset
+  // of the panel-clear region (rail + panel + 16px gap).
+  const cs = getComputedStyle(document.documentElement);
+  const rail = parseFloat(cs.getPropertyValue('--mode-bar-w')) || 40;
+  const panelW = parseFloat(cs.getPropertyValue('--side-panel-w')) || 248;
+  const L = rail + panelW + 16;
+  renderer.setViewportShift(open ? L / 2 : 0);
 }
 applyPanelOpenClass();
 
@@ -104,6 +113,9 @@ if (panelResize && sidePanel) {
     // Keep --side-panel-w in sync so dependent calc()s — info-pill's
     // panel-open offset and the toolbar's max-width — track the real width.
     document.documentElement.style.setProperty('--side-panel-w', newWidth + 'px');
+    // Re-apply the 3D viewport shift so the structure stays centered in the
+    // (now-resized) panel-clear region.
+    applyPanelOpenClass();
   });
   window.addEventListener('pointerup', () => {
     if (resizing) debouncedSave();
@@ -484,28 +496,38 @@ function updateTrajectorySectionVisibility() {
   }
 }
 
-// 16.3 Magnetic moments
-const magmomCheck = document.getElementById('magmom-check') as HTMLInputElement;
-const magCmapRedblue = document.getElementById('mag-cmap-redblue') as HTMLInputElement;
-const magCmapViridis = document.getElementById('mag-cmap-viridis') as HTMLInputElement;
-if (magmomCheck) {
-  magmomCheck.addEventListener('change', () => renderer.setShowMagneticMoments(magmomCheck.checked));
+// Per-atom vector overlay (generalized v0.18 — was magmom-only).
+const vectorCheck = document.getElementById('vector-check') as HTMLInputElement;
+const vecCmapRedblue = document.getElementById('vec-cmap-redblue') as HTMLInputElement;
+const vecCmapViridis = document.getElementById('vec-cmap-viridis') as HTMLInputElement;
+const vecKindLabel = document.getElementById('vec-kind-label') as HTMLElement | null;
+if (vectorCheck) {
+  vectorCheck.addEventListener('change', () => renderer.setShowAtomVectors(vectorCheck.checked));
 }
-if (magCmapRedblue) {
-  magCmapRedblue.addEventListener('change', () => { if (magCmapRedblue.checked) renderer.setMagneticColormap('redblue'); });
+if (vecCmapRedblue) {
+  vecCmapRedblue.addEventListener('change', () => { if (vecCmapRedblue.checked) renderer.setVectorColormap('redblue'); });
 }
-if (magCmapViridis) {
-  magCmapViridis.addEventListener('change', () => { if (magCmapViridis.checked) renderer.setMagneticColormap('viridis'); });
+if (vecCmapViridis) {
+  vecCmapViridis.addEventListener('change', () => { if (vecCmapViridis.checked) renderer.setVectorColormap('viridis'); });
 }
-function updateMagneticMomentsSectionVisibility() {
-  const section = document.getElementById('magnetic-moments-section');
+function updateAtomVectorsSectionVisibility() {
+  const section = document.getElementById('atom-vectors-section');
   if (!section) return;
-  if (renderer.hasMagneticMoments()) {
+  if (renderer.hasAtomVectors()) {
     section.classList.remove('hidden');
-    if (magmomCheck) magmomCheck.checked = renderer.getShowMagneticMoments();
-    const cmap = renderer.getMagneticColormap();
-    if (magCmapRedblue) magCmapRedblue.checked = (cmap === 'redblue');
-    if (magCmapViridis) magCmapViridis.checked = (cmap === 'viridis');
+    if (vectorCheck) vectorCheck.checked = renderer.getShowAtomVectors();
+    const cmap = renderer.getVectorColormap();
+    if (vecCmapRedblue) vecCmapRedblue.checked = (cmap === 'redblue');
+    if (vecCmapViridis) vecCmapViridis.checked = (cmap === 'viridis');
+    if (vecKindLabel) {
+      const info = renderer.getAtomVectorInfo();
+      if (info) {
+        const unitStr = info.unit ? ` (${info.unit})` : '';
+        vecKindLabel.textContent = (info.label ?? info.kind) + unitStr;
+      } else {
+        vecKindLabel.textContent = '';
+      }
+    }
   } else {
     section.classList.add('hidden');
   }
@@ -798,14 +820,20 @@ function renderMeasureHud() {
   if (measurePair) {
     const showAtoms = m ? measureHistory.slice(-m.atoms.length) : measureHistory.slice();
     measurePair.dataset.count = String(showAtoms.length);
+    const colors = showAtoms.map(a => renderer.getElementColor(a.element) || '#888');
+    // Build markup with no inline styles (webview CSP restricts style-src),
+    // then attach colors via the DOM `.style` API which is CSP-safe.
     measurePair.innerHTML = showAtoms.map((a, i) => {
-      const color = renderer.getElementColor(a.element) || '#888';
-      const cell = `<div class="measure-atom"><span class="measure-swatch" style="background:${color}"></span><div class="measure-atom-text"><div class="measure-atom-sym">${escapeHtml(a.element)}</div><div class="measure-atom-idx">#${a.index}</div></div></div>`;
+      const cell = `<div class="measure-atom"><span class="measure-swatch"></span><div class="measure-atom-text"><div class="measure-atom-sym">${escapeHtml(a.element)}</div><div class="measure-atom-idx">#${a.index}</div></div></div>`;
       const sep = i < showAtoms.length - 1
         ? '<span class="measure-connector"><span class="line"></span><span class="arrow">↔</span><span class="line"></span></span>'
         : '';
       return cell + sep;
     }).join('');
+    const swatches = measurePair.querySelectorAll<HTMLElement>('.measure-swatch');
+    const syms = measurePair.querySelectorAll<HTMLElement>('.measure-atom-sym');
+    swatches.forEach((el, i) => { el.style.background = colors[i]; });
+    syms.forEach((el, i) => { el.style.color = colors[i]; });
   }
 
   // Δ rows — only for distance measurements (V2 spec).
@@ -1092,7 +1120,7 @@ window.addEventListener('wheel', debouncedSave);
 [scA, scB, scC, styleSelect, impostorCheck, stepAngleInput, stepZoomInput,
   bondsCheck, labelsCheck, polyCheck, boundaryCheck, celldashCheck, axisSizeSlider,
   ellipsoidsCheck, ellipsoidContour50, ellipsoidContour90, partialOccCheck,
-  magmomCheck, magCmapRedblue, magCmapViridis]
+  vectorCheck, vecCmapRedblue, vecCmapViridis]
   .forEach((el) => el?.addEventListener('change', debouncedSave));
 cameraBtn?.addEventListener('click', debouncedSave);
 paletteBtn?.addEventListener('click', debouncedSave);
@@ -1363,7 +1391,7 @@ window.addEventListener('message', (event) => {
       updateBondSkipHint();
       updateEllipsoidsSectionVisibility();
       updatePartialOccupancySectionVisibility();
-      updateMagneticMomentsSectionVisibility();
+      updateAtomVectorsSectionVisibility();
       // 17.1.4: hide trajectory section if previously a multi-frame file was
       // loaded in this webview session (loadStructure resets trajectory).
       updateTrajectorySectionVisibility();
@@ -1415,7 +1443,7 @@ window.addEventListener('message', (event) => {
       updateBondSkipHint();
       updateEllipsoidsSectionVisibility();
       updatePartialOccupancySectionVisibility();
-      updateMagneticMomentsSectionVisibility();
+      updateAtomVectorsSectionVisibility();
       updateTrajectorySectionVisibility();
       updatePhasesSectionVisibility();
       break;

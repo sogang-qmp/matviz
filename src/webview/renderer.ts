@@ -11,7 +11,7 @@ import { AxisIndicator } from './axisIndicator';
 import { BondRenderer, type BondInfo } from './bondRenderer';
 import { SphereImpostorMesh, createImpostorMaterial } from './sphereImpostor';
 import { EllipsoidRenderer, type EllipsoidInstance, type ProbabilityContour } from './ellipsoidRenderer';
-import { MagneticArrowRenderer, type MagneticArrowInstance, type Colormap as MagColormap } from './magneticArrowRenderer';
+import { VectorArrowRenderer, type VectorArrowInstance, type Colormap as VecColormap } from './vectorArrowRenderer';
 import { DisplacementArrowRenderer } from './displacementArrowRenderer';
 import { matchByNN, type DisplacementPair } from './nnMatching';
 
@@ -135,12 +135,11 @@ export class CrystalRenderer {
   // regular path (matches the pre-v0.16 behavior — no visual change off).
   private showPartialOccupancy = false;
 
-  // 16.3 magnetic moment vectors — opt-in arrow overlay. Independent of
-  // atom rendering (doesn't peel atoms off the regular path; arrows just
-  // overlay). Hidden by default; UI surfaces only when structure carries
-  // magMom data.
-  private magneticArrowRenderer = new MagneticArrowRenderer();
-  private showMagneticMoments = false;
+  // Per-atom vector overlay (generalized v0.18 — was 16.3 magmom). Opt-in
+  // arrow overlay independent of atom rendering. Hidden by default; the UI
+  // surfaces only when the structure carries non-zero atomVectors data.
+  private vectorArrowRenderer = new VectorArrowRenderer();
+  private showAtomVectors = false;
 
   // 16.4 Wulff construction — command-palette driven overlay.
   private wulffGroup = new THREE.Group();
@@ -264,7 +263,7 @@ export class CrystalRenderer {
     dir2.position.set(-5, -5, -5);
     this.scene.add(ambient, dir1, dir2);
 
-    this.scene.add(this.atomGroup, this.bondRenderer.group, this.cellGroup, this.labelGroup, this.polyhedraGroup, this.measureGroup, this.planeGroup, this.isoGroup, this.ellipsoidRenderer.group, this.magneticArrowRenderer.group, this.wulffGroup, this.secondaryPhasesGroup, this.displacementArrowRenderer.group);
+    this.scene.add(this.atomGroup, this.bondRenderer.group, this.cellGroup, this.labelGroup, this.polyhedraGroup, this.measureGroup, this.planeGroup, this.isoGroup, this.ellipsoidRenderer.group, this.vectorArrowRenderer.group, this.wulffGroup, this.secondaryPhasesGroup, this.displacementArrowRenderer.group);
     this.labelGroup.renderOrder = 999;
     this.labelGroup.visible = false;
     this.polyhedraGroup.visible = false;
@@ -639,29 +638,38 @@ export class CrystalRenderer {
     return !!this.structure?.occupancy?.some(o => o < 1.0 - 1e-6);
   }
 
-  // 16.3 magnetic moments — toggle, colormap, and helper.
-  setShowMagneticMoments(enabled: boolean) {
-    if (enabled === this.showMagneticMoments) return;
-    this.showMagneticMoments = enabled;
+  // Per-atom vector overlay — toggle, colormap, and helpers. Generalized
+  // from the original magmom-only API in v0.18; semantics now come from
+  // structure.atomVectors.kind/label/unit.
+  setShowAtomVectors(enabled: boolean) {
+    if (enabled === this.showAtomVectors) return;
+    this.showAtomVectors = enabled;
     if (this.structure) this.buildVisuals();
   }
 
-  getShowMagneticMoments(): boolean { return this.showMagneticMoments; }
+  getShowAtomVectors(): boolean { return this.showAtomVectors; }
 
-  setMagneticColormap(c: MagColormap) {
-    if (c === this.magneticArrowRenderer.getColormap()) return;
-    this.magneticArrowRenderer.setColormap(c);
-    if (this.structure && this.showMagneticMoments) this.buildVisuals();
+  setVectorColormap(c: VecColormap) {
+    if (c === this.vectorArrowRenderer.getColormap()) return;
+    this.vectorArrowRenderer.setColormap(c);
+    if (this.structure && this.showAtomVectors) this.buildVisuals();
   }
 
-  getMagneticColormap(): MagColormap { return this.magneticArrowRenderer.getColormap(); }
+  getVectorColormap(): VecColormap { return this.vectorArrowRenderer.getColormap(); }
 
   /**
-   * Whether the loaded structure carries any non-zero magnetic moment.
-   * Used by the UI to surface the magnetic-moments section.
+   * Whether the loaded structure carries any non-zero per-atom vector.
+   * Used by the UI to surface the vector-overlay section.
    */
-  hasMagneticMoments(): boolean {
-    return !!this.structure?.magMom?.some(m => m[0] !== 0 || m[1] !== 0 || m[2] !== 0);
+  hasAtomVectors(): boolean {
+    return !!this.structure?.atomVectors?.values.some(v => v[0] !== 0 || v[1] !== 0 || v[2] !== 0);
+  }
+
+  /** Metadata for the loaded vector field (kind/label/unit), or null. */
+  getAtomVectorInfo(): { kind: string; label?: string; unit?: string } | null {
+    const av = this.structure?.atomVectors;
+    if (!av) return null;
+    return { kind: av.kind, label: av.label, unit: av.unit };
   }
 
   // 16.4 Wulff construction — command-palette entry. Caller provides
@@ -1183,8 +1191,8 @@ export class CrystalRenderer {
     showEllipsoids: boolean;
     probabilityContour: ProbabilityContour;
     showPartialOccupancy: boolean;
-    showMagneticMoments: boolean;
-    magneticColormap: MagColormap;
+    showAtomVectors: boolean;
+    vectorColormap: VecColormap;
   } {
     const pos = this.activeCamera.position;
     const target = this.controls.target;
@@ -1216,8 +1224,8 @@ export class CrystalRenderer {
       showEllipsoids: this.showEllipsoids,
       probabilityContour: this.ellipsoidRenderer.getProbabilityContour(),
       showPartialOccupancy: this.showPartialOccupancy,
-      showMagneticMoments: this.showMagneticMoments,
-      magneticColormap: this.magneticArrowRenderer.getColormap(),
+      showAtomVectors: this.showAtomVectors,
+      vectorColormap: this.vectorArrowRenderer.getColormap(),
     };
   }
 
@@ -1265,9 +1273,9 @@ export class CrystalRenderer {
       this.ellipsoidRenderer.setProbabilityContour(state.probabilityContour);
     }
     if (typeof state.showPartialOccupancy === 'boolean') this.showPartialOccupancy = state.showPartialOccupancy;
-    if (typeof state.showMagneticMoments === 'boolean') this.showMagneticMoments = state.showMagneticMoments;
-    if (state.magneticColormap === 'redblue' || state.magneticColormap === 'viridis') {
-      this.magneticArrowRenderer.setColormap(state.magneticColormap);
+    if (typeof state.showAtomVectors === 'boolean') this.showAtomVectors = state.showAtomVectors;
+    if (state.vectorColormap === 'redblue' || state.vectorColormap === 'viridis') {
+      this.vectorArrowRenderer.setColormap(state.vectorColormap);
     }
 
     if (state.cameraMode !== this.cameraMode) {
@@ -1939,25 +1947,25 @@ export class CrystalRenderer {
     this.buildAtoms(species, positions, style, bonds);
     this.pickingRenderer.rebuild(this.atomMeshMap, this.impostorEnabled, this.cameraMode === 'orthographic');
 
-    // 16.3 magnetic-moment arrows — overlay, independent of atom dispatch.
-    // Looks up moment per expanded atom via expandedUnitCellIndex; arrows
-    // are skipped for zero moments (length < 1e-4).
-    this.magneticArrowRenderer.clear();
-    const mag = this.structure?.magMom;
-    if (this.showMagneticMoments && mag && style !== 'wireframe') {
-      const arrows: MagneticArrowInstance[] = [];
+    // Atom-vector arrow overlay (generalized v0.18). Looks up the per-atom
+    // vector via expandedUnitCellIndex; arrows are skipped for zero vectors
+    // (length < 1e-4).
+    this.vectorArrowRenderer.clear();
+    const vec = this.structure?.atomVectors?.values;
+    if (this.showAtomVectors && vec && style !== 'wireframe') {
+      const arrows: VectorArrowInstance[] = [];
       for (let i = 0; i < species.length; i++) {
         if (this.elementVisibility.get(species[i]) === false) continue;
         const unitIdx = this.expandedUnitCellIndex[i] ?? i;
-        const m = mag[unitIdx];
-        if (!m) continue;
-        const len = Math.sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+        const v = vec[unitIdx];
+        if (!v) continue;
+        const len = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
         if (len < 1e-4) continue;
-        arrows.push({ position: positions[i], moment: m });
+        arrows.push({ position: positions[i], vector: v });
       }
-      if (arrows.length > 0) this.magneticArrowRenderer.rebuild(arrows);
+      if (arrows.length > 0) this.vectorArrowRenderer.rebuild(arrows);
     }
-    this.magneticArrowRenderer.setVisible(this.showMagneticMoments);
+    this.vectorArrowRenderer.setVisible(this.showAtomVectors);
 
     if (style !== 'space-filling' && this.showBonds) {
       this.bondRenderer.rebuild(species, positions, bonds, this.bondStyle, style);
@@ -2798,6 +2806,40 @@ export class CrystalRenderer {
     }
   }
 
+  /**
+   * Shift the rendered scene horizontally by `px` CSS pixels (positive =
+   * rightward). Implemented via Camera.setViewOffset on both cameras so the
+   * canvas itself stays full-size — only the projection matrix changes.
+   * Used when the side panel covers the left portion of the canvas: passing
+   * (rail + panel + 16) / 2 lands the structure visually centered in the
+   * panel-clear region. Pass 0 to clear.
+   */
+  setViewportShift(px: number) {
+    if (px === this.viewportShiftPx) return;
+    this.viewportShiftPx = px;
+    this.applyViewportShift();
+    this.requestRender();
+  }
+
+  private viewportShiftPx = 0;
+
+  private applyViewportShift() {
+    const w = this.canvas.clientWidth || 0;
+    const h = this.canvas.clientHeight || 0;
+    if (!w || !h) return;
+    const px = this.viewportShiftPx;
+    if (px === 0) {
+      this.perspCamera.clearViewOffset();
+      this.orthoCamera.clearViewOffset();
+    } else {
+      // Negative offsetX shifts rendered content rightward in the viewport —
+      // canvas at world position (W/2 - px) maps to screen center, so the
+      // structure visually moves right by `px` pixels.
+      this.perspCamera.setViewOffset(w, h, -px, 0, w, h);
+      this.orthoCamera.setViewOffset(w, h, -px, 0, w, h);
+    }
+  }
+
   private onResize() {
     // Read the canvas' own rendered size so layout modes (overlay/offset)
     // that shrink the canvas below the viewport width work correctly.
@@ -2815,6 +2857,10 @@ export class CrystalRenderer {
     this.orthoCamera.updateProjectionMatrix();
 
     this.renderer.setSize(w, h, false);
+    // Re-apply viewport shift so its (fullW, fullH) matches the new canvas
+    // size. Without this, a window resize while the panel is open would
+    // leave the offset ratio stale.
+    if (this.viewportShiftPx !== 0) this.applyViewportShift();
     this.requestRender();
   }
 }
