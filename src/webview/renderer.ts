@@ -976,12 +976,14 @@ export class CrystalRenderer {
   private volumetricData: VolumetricData | null = null;
   private isoLevel = 0;
 
-  loadVolumetric(data: { origin: [number, number, number]; lattice: [number, number, number][]; dims: [number, number, number]; data: Float32Array }) {
+  loadVolumetric(data: { origin: [number, number, number]; lattice: [number, number, number][]; dims: [number, number, number]; data: Float32Array; stride?: number; originalDims?: [number, number, number] }) {
     this.volumetricData = {
       origin: data.origin,
       lattice: data.lattice,
       dims: data.dims,
       data: data.data,
+      stride: data.stride,
+      originalDims: data.originalDims,
     };
     // Auto set iso level to 10% of max value
     let maxVal = 0;

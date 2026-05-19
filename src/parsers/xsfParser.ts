@@ -1,5 +1,11 @@
-import { CrystalStructure, CrystalTrajectory, VolumetricData, AtomVectorField } from './types';
+import {
+  CrystalStructure, CrystalTrajectory, VolumetricData, AtomVectorField,
+  VolumetricLoadOptions, VOLUMETRIC_SAFETY_MAX_GRID_POINTS, chooseStride,
+} from './types';
 import { getElementByNumber } from '../shared/elements-data';
+import { iterLines, findBytes } from './lineIterator';
+
+const DATAGRID_MARKER = new TextEncoder().encode('BEGIN_BLOCK_DATAGRID_3D');
 
 /**
  * Auto-detect trailing vector data in a batch of PRIMCOORD/ATOMS atom rows.
@@ -338,4 +344,100 @@ function parseDatagrid3D(block: string): VolumetricData | undefined {
   }
 
   return { origin, lattice: gridLattice, dims: [nx, ny, nz], data };
+}
+
+/**
+ * Byte-path single-frame XSF parser (v0.22 Tier 2). Use when the file is
+ * too large to materialize as a single JS string (V8 ceiling ~512 MiB).
+ * Header portion is decoded as a small string and fed to the existing
+ * `parseXsf` (structure / atoms / lattice unchanged); only the DATAGRID
+ * grid blob is processed line-by-line over the byte buffer.
+ */
+export function parseXsfFromBytes(
+  bytes: Uint8Array,
+  options?: VolumetricLoadOptions,
+): CrystalStructure & { volumetric?: VolumetricData } {
+  const datagridOffset = findBytes(bytes, DATAGRID_MARKER);
+  if (datagridOffset < 0) {
+    return parseXsf(new TextDecoder('utf-8', { fatal: false }).decode(bytes));
+  }
+  const headerStr = new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(0, datagridOffset));
+  const header = parseXsf(headerStr);
+  const volumetric = parseDatagrid3DFromBytes(bytes.subarray(datagridOffset), options);
+  return { ...header, volumetric };
+}
+
+function parseDatagrid3DFromBytes(blockBytes: Uint8Array, options?: VolumetricLoadOptions): VolumetricData | undefined {
+  const lines = iterLines(blockBytes);
+  const cap = options?.maxGridPoints ?? VOLUMETRIC_SAFETY_MAX_GRID_POINTS;
+
+  let nx = 0, ny = 0, nz = 0;
+  const origin: [number, number, number] = [0, 0, 0];
+  const gridLattice: [number, number, number][] = [];
+  let stage: 'find-begin' | 'dims' | 'origin' | 'vec1' | 'vec2' | 'vec3' | 'data' = 'find-begin';
+
+  let data: Float32Array | null = null;
+  let stride = 1;
+  let outNx = 0, outNy = 0, outNz = 0;
+  let totalPoints = 0;
+  let ix = 0, iy = 0, iz = 0;
+  let count = 0;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (stage === 'find-begin') {
+      if (line.startsWith('BEGIN_DATAGRID_3D')) stage = 'dims';
+      continue;
+    }
+    if (stage === 'dims') {
+      const t = line.split(/\s+/).map(Number);
+      nx = t[0]; ny = t[1]; nz = t[2];
+      totalPoints = nx * ny * nz;
+      stride = chooseStride(nx, ny, nz, cap);
+      outNx = Math.ceil(nx / stride);
+      outNy = Math.ceil(ny / stride);
+      outNz = Math.ceil(nz / stride);
+      data = new Float32Array(outNx * outNy * outNz);
+      stage = 'origin';
+      continue;
+    }
+    if (stage === 'origin') {
+      const t = line.split(/\s+/).map(Number);
+      origin[0] = t[0]; origin[1] = t[1]; origin[2] = t[2];
+      stage = 'vec1';
+      continue;
+    }
+    if (stage === 'vec1' || stage === 'vec2' || stage === 'vec3') {
+      const t = line.split(/\s+/).map(Number);
+      gridLattice.push([t[0], t[1], t[2]]);
+      stage = stage === 'vec1' ? 'vec2' : stage === 'vec2' ? 'vec3' : 'data';
+      continue;
+    }
+    if (line.startsWith('END_DATAGRID_3D') || line.startsWith('END_BLOCK_DATAGRID_3D')) break;
+    if (count >= totalPoints) break;
+    const tokens = line.split(/\s+/);
+    for (const t of tokens) {
+      if (count >= totalPoints || t === '') continue;
+      // Source ordering (XSF Fortran): ix fastest in the file stream;
+      // storage is C order (iz fastest in memory). Apply stride during
+      // ingestion: emit only when all three indices are multiples of stride.
+      if (ix % stride === 0 && iy % stride === 0 && iz % stride === 0) {
+        const oi = ix / stride, oj = iy / stride, ok = iz / stride;
+        data![oi * outNy * outNz + oj * outNz + ok] = parseFloat(t);
+      }
+      count++;
+      ix++;
+      if (ix === nx) { ix = 0; iy++; if (iy === ny) { iy = 0; iz++; } }
+    }
+  }
+
+  if (!data) return undefined;
+  const result: VolumetricData = {
+    origin, lattice: gridLattice, dims: [outNx, outNy, outNz], data,
+  };
+  if (stride > 1) {
+    result.stride = stride;
+    result.originalDims = [nx, ny, nz];
+  }
+  return result;
 }

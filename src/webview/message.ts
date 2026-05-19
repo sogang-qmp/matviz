@@ -6,7 +6,7 @@ export type BondStyle = 'bicolor' | 'unicolor' | 'line';
 
 export type ExtensionMessage =
   | { type: 'loadStructure'; data: CrystalStructure }
-  | { type: 'loadVolumetric'; data: { origin: [number, number, number]; lattice: [number, number, number][]; dims: [number, number, number]; data: Float32Array } }
+  | { type: 'loadVolumetric'; data: { origin: [number, number, number]; lattice: [number, number, number][]; dims: [number, number, number]; data: Float32Array; stride?: number; originalDims?: [number, number, number] } }
   | { type: 'resetCamera' }
   | { type: 'toggleBonds' }
   | { type: 'viewAlongDirection'; uvw: [number, number, number] }

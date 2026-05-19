@@ -1,15 +1,23 @@
-import { CrystalStructure, VolumetricData } from './types';
+import {
+  CrystalStructure, VolumetricData,
+  VolumetricLoadOptions, VOLUMETRIC_SAFETY_MAX_GRID_POINTS, chooseStride,
+} from './types';
 import { getElementByNumber } from '../shared/elements-data';
+import { iterLines, offsetAfterLines } from './lineIterator';
 
 const BOHR_TO_ANG = 0.529177249;
 
-export function parseCube(content: string): { structure: CrystalStructure; volumetric: VolumetricData } {
-  const lines = content.split('\n');
+interface CubeHeader {
+  structure: CrystalStructure;
+  origin: [number, number, number];
+  lattice: [number, number, number][];
+  dims: [number, number, number];
+  nAtoms: number;
+}
 
-  // Lines 0-1: comments
+function parseCubeHeader(lines: string[]): CubeHeader {
   const title = lines[0].trim();
 
-  // Line 2: number of atoms, origin
   const line2 = lines[2].trim().split(/\s+/).map(Number);
   const nAtoms = Math.abs(Math.round(line2[0]));
   const origin: [number, number, number] = [
@@ -18,14 +26,11 @@ export function parseCube(content: string): { structure: CrystalStructure; volum
     line2[3] * BOHR_TO_ANG,
   ];
 
-  // Lines 3-5: grid dimensions and vectors
   const dims: [number, number, number] = [0, 0, 0];
   const voxelVecs: [number, number, number][] = [];
-
   for (let i = 0; i < 3; i++) {
     const tokens = lines[3 + i].trim().split(/\s+/).map(Number);
     dims[i] = Math.abs(Math.round(tokens[0]));
-    // If N is positive, units are Bohr; if negative, Angstroms
     const scale = line2[0] >= 0 ? BOHR_TO_ANG : 1;
     voxelVecs.push([
       tokens[1] * scale * dims[i],
@@ -33,15 +38,11 @@ export function parseCube(content: string): { structure: CrystalStructure; volum
       tokens[3] * scale * dims[i],
     ]);
   }
-
-  // Lattice = voxel vectors * dims (already multiplied above)
   const lattice: [number, number, number][] = voxelVecs;
 
-  // Lines 6 to 6+nAtoms-1: atom data
   const species: string[] = [];
   const positions: [number, number, number][] = [];
   const atomScale = line2[0] >= 0 ? BOHR_TO_ANG : 1;
-
   for (let i = 0; i < nAtoms; i++) {
     const tokens = lines[6 + i].trim().split(/\s+/).map(Number);
     const atomicNum = Math.round(tokens[0]);
@@ -54,12 +55,23 @@ export function parseCube(content: string): { structure: CrystalStructure; volum
     ]);
   }
 
-  // Volumetric data starts after atoms
-  const dataStart = 6 + nAtoms;
-  const totalPoints = dims[0] * dims[1] * dims[2];
-  const data = new Float32Array(totalPoints);
-  let idx = 0;
+  return {
+    structure: { lattice, species, positions, pbc: [true, true, true], title },
+    origin,
+    lattice,
+    dims,
+    nAtoms,
+  };
+}
 
+export function parseCube(content: string): { structure: CrystalStructure; volumetric: VolumetricData } {
+  const lines = content.split('\n');
+  const header = parseCubeHeader(lines);
+
+  const totalPoints = header.dims[0] * header.dims[1] * header.dims[2];
+  const data = new Float32Array(totalPoints);
+  const dataStart = 6 + header.nAtoms;
+  let idx = 0;
   for (let i = dataStart; i < lines.length && idx < totalPoints; i++) {
     const tokens = lines[i].trim().split(/\s+/);
     for (const t of tokens) {
@@ -69,20 +81,81 @@ export function parseCube(content: string): { structure: CrystalStructure; volum
     }
   }
 
-  const structure: CrystalStructure = {
-    lattice,
-    species,
-    positions,
-    pbc: [true, true, true],
-    title,
+  return {
+    structure: header.structure,
+    volumetric: { origin: header.origin, lattice: header.lattice, dims: header.dims, data },
   };
+}
+
+/**
+ * Byte-path Gaussian Cube parser (v0.22 Tier 2). Decodes only the header
+ * (first `6 + nAtoms` lines, always well under a few KB) as a string for
+ * reuse with the existing header parser; iterates the grid blob
+ * line-by-line over the remaining byte buffer. No intermediate full-size
+ * Float32Array allocation.
+ */
+export function parseCubeFromBytes(
+  bytes: Uint8Array,
+  options?: VolumetricLoadOptions,
+): { structure: CrystalStructure; volumetric: VolumetricData } {
+  // Peek a few KB to read line 2's atom count, then compute the precise
+  // header byte offset.
+  const PEEK = Math.min(bytes.length, 64 * 1024);
+  const peekStr = new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(0, PEEK));
+  const peekLines = peekStr.split('\n');
+  const line2 = peekLines[2].trim().split(/\s+/).map(Number);
+  const nAtoms = Math.abs(Math.round(line2[0]));
+
+  const headerLineCount = 6 + nAtoms;
+  const dataStartByte = offsetAfterLines(bytes, headerLineCount);
+
+  // Decode just the header lines (always small).
+  const headerEnd = dataStartByte >= 0 ? dataStartByte : bytes.length;
+  const headerStr = new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(0, headerEnd));
+  const header = parseCubeHeader(headerStr.split('\n'));
+
+  const [nx, ny, nz] = header.dims;
+  const totalPoints = nx * ny * nz;
+  const cap = options?.maxGridPoints ?? VOLUMETRIC_SAFETY_MAX_GRID_POINTS;
+  const stride = chooseStride(nx, ny, nz, cap);
+  const outNx = Math.ceil(nx / stride);
+  const outNy = Math.ceil(ny / stride);
+  const outNz = Math.ceil(nz / stride);
+  const data = new Float32Array(outNx * outNy * outNz);
+
+  // Cube source ordering: for ix in 0..nx, for iy in 0..ny, for iz in 0..nz
+  // (iz is fastest in the file stream as well as in memory storage). Walk
+  // (ix, iy, iz) counters and write only when all three are stride-aligned.
+  let ix = 0, iy = 0, iz = 0;
+  let count = 0;
+
+  if (dataStartByte >= 0) {
+    for (const rawLine of iterLines(bytes.subarray(dataStartByte))) {
+      if (count >= totalPoints) break;
+      const tokens = rawLine.trim().split(/\s+/);
+      for (const t of tokens) {
+        if (count >= totalPoints || t === '') continue;
+        if (ix % stride === 0 && iy % stride === 0 && iz % stride === 0) {
+          const oi = ix / stride, oj = iy / stride, ok = iz / stride;
+          data[oi * outNy * outNz + oj * outNz + ok] = parseFloat(t);
+        }
+        count++;
+        iz++;
+        if (iz === nz) { iz = 0; iy++; if (iy === ny) { iy = 0; ix++; } }
+      }
+    }
+  }
 
   const volumetric: VolumetricData = {
-    origin,
-    lattice,
-    dims,
+    origin: header.origin,
+    lattice: header.lattice,
+    dims: [outNx, outNy, outNz],
     data,
   };
+  if (stride > 1) {
+    volumetric.stride = stride;
+    volumetric.originalDims = [nx, ny, nz];
+  }
 
-  return { structure, volumetric };
+  return { structure: header.structure, volumetric };
 }

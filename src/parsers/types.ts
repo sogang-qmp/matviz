@@ -37,8 +37,102 @@ export interface AtomVectorField {
 export interface VolumetricData {
   origin: [number, number, number];
   lattice: [number, number, number][];
-  dims: [number, number, number];
+  dims: [number, number, number];          // dims after any v0.22 Tier 3 stride
   data: Float32Array;
+  // v0.22 Tier 3 — populated when load-time downsampling was applied. `stride`
+  // is the integer skip factor along each axis (1 = no decimation); when stride
+  // > 1, `originalDims` holds the pre-decimation grid shape so UI can show
+  // "300³ → 150³ (stride 2)". Both fields absent on stride-1 loads.
+  stride?: number;
+  originalDims?: [number, number, number];
+}
+
+/**
+ * v0.22 Tier 3 options. Passed from `crystalEditorProvider` (which reads the
+ * VSCode setting `matviz.volumetric.maxGridPoints`) down to the *FromBytes
+ * parsers so they can choose a stride before allocating the result
+ * Float32Array. Choosing the stride during ingestion (rather than as a
+ * post-process) is the only way to handle grids that would otherwise blow
+ * the 4 GiB ArrayBuffer ceiling — the full-resolution Float32Array is never
+ * materialized in that case.
+ */
+export interface VolumetricLoadOptions {
+  /**
+   * Cap on `dims[0] * dims[1] * dims[2]` after decimation. The parser picks
+   * the smallest integer stride satisfying the cap. `null` falls back to a
+   * safety default chosen well below the 4 GiB ArrayBuffer limit.
+   */
+  maxGridPoints?: number | null;
+}
+
+/**
+ * Default per-axis cap on grid points. 4×10⁸ ≈ 730³, 1.6 GB of Float32 —
+ * roughly half the 4 GiB ArrayBuffer ceiling, leaving headroom for the
+ * source Uint8Array, V8 internal allocations, and the webview's own copy
+ * post-structured-clone. Tuned to never auto-OOM on a 32 GB workstation.
+ */
+export const VOLUMETRIC_SAFETY_MAX_GRID_POINTS = 4e8;
+
+/**
+ * Pick the smallest integer `stride ≥ 1` such that decimating an `nx×ny×nz`
+ * grid down to `ceil(nx/stride) * ceil(ny/stride) * ceil(nz/stride)` points
+ * does not exceed `maxGridPoints`. Returns 1 when the source already fits.
+ */
+export function chooseStride(
+  nx: number, ny: number, nz: number, maxGridPoints: number,
+): number {
+  let s = 1;
+  while (
+    Math.ceil(nx / s) * Math.ceil(ny / s) * Math.ceil(nz / s) > maxGridPoints
+  ) {
+    s++;
+  }
+  return s;
+}
+
+/**
+ * Post-parse decimation. Used by the string-path (small files) when the
+ * user has set an explicit `maxGridPoints` cap — in that case the cap is
+ * a user preference for fast rendering, not a memory-safety fallback, and
+ * should apply regardless of file size.
+ *
+ * Skips work when `options.maxGridPoints` is null/undefined or when the
+ * source already fits. The result's `stride` field composes with any
+ * stride the byte path may have already applied (so a byte-path 1024³ →
+ * 512³ load followed by a user-set further-cap decimation correctly
+ * reports the cumulative stride).
+ */
+export function decimateVolumetric(
+  v: VolumetricData, options?: VolumetricLoadOptions,
+): VolumetricData {
+  const cap = options?.maxGridPoints;
+  if (cap == null) return v;
+  const [nx, ny, nz] = v.dims;
+  const stride = chooseStride(nx, ny, nz, cap);
+  if (stride <= 1) return v;
+  const outNx = Math.ceil(nx / stride);
+  const outNy = Math.ceil(ny / stride);
+  const outNz = Math.ceil(nz / stride);
+  const data = new Float32Array(outNx * outNy * outNz);
+  // Source memory layout: data[ix * ny * nz + iy * nz + iz] (C order,
+  // iz fastest in memory). Sample at stride-aligned (ix, iy, iz).
+  for (let oi = 0; oi < outNx; oi++) {
+    for (let oj = 0; oj < outNy; oj++) {
+      for (let ok = 0; ok < outNz; ok++) {
+        const ix = oi * stride, iy = oj * stride, iz = ok * stride;
+        data[oi * outNy * outNz + oj * outNz + ok] =
+          v.data[ix * ny * nz + iy * nz + iz];
+      }
+    }
+  }
+  return {
+    origin: v.origin,
+    lattice: v.lattice,
+    dims: [outNx, outNy, outNz],
+    data,
+    stride: (v.stride ?? 1) * stride,
+    originalDims: v.originalDims ?? [nx, ny, nz],
+  };
 }
 
 /**

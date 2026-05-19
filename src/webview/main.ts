@@ -26,6 +26,17 @@ function setInfoPill(formula: string, metaHtml: string) {
   if (pillMeta) pillMeta.innerHTML = metaHtml;
   infoPill?.classList.remove('hidden');
 }
+/**
+ * Append a · -delimited fragment to the info pill's meta line without
+ * touching the formula. Used by load-time-decimated volumetric loads
+ * (v0.22 Tier 3) to surface "iso: 1024³ → 512³ (stride 2)" so the user
+ * knows they are looking at sub-sampled data.
+ */
+function appendInfoPillMeta(html: string) {
+  if (!pillMeta) return;
+  const cur = pillMeta.innerHTML;
+  pillMeta.innerHTML = cur ? `${cur} · ${html}` : html;
+}
 function clearInfoPill() {
   infoPill?.classList.add('hidden');
 }
@@ -1607,6 +1618,15 @@ window.addEventListener('message', (event) => {
       break;
     case 'loadVolumetric': {
       renderer.loadVolumetric(msg.data);
+      // v0.22 Tier 3: when ingestion applied a stride, tell the user so
+      // they don't mistake decimated samples for native resolution.
+      if (msg.data.stride && msg.data.stride > 1 && msg.data.originalDims) {
+        const [ox, oy, oz] = msg.data.originalDims;
+        const [nx, ny, nz] = msg.data.dims;
+        const fmt = (a: number, b: number, c: number) =>
+          a === b && b === c ? `${a}³` : `${a}×${b}×${c}`;
+        appendInfoPillMeta(`iso: <b>${fmt(ox, oy, oz)}</b> → <b>${fmt(nx, ny, nz)}</b> (stride ${msg.data.stride})`);
+      }
       const isoSection = document.getElementById('iso-section')!;
       const isoSlider = document.getElementById('iso-slider') as HTMLInputElement;
       const isoInput = document.getElementById('iso-input') as HTMLInputElement;

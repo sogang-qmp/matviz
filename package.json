@@ -2,7 +2,7 @@
   "name": "vscode-matviz",
   "displayName": "MatViz - Crystal Structure Viewer",
   "description": "Interactive 3D crystal structure visualization for CIF, POSCAR, XSF, XYZ, PDB, Gaussian Cube, and more",
-  "version": "0.20.1",
+  "version": "0.22.0",
   "license": "MIT",
   "publisher": "matviz",
   "repository": {
@@ -153,6 +153,11 @@
           "minimum": 40,
           "maximum": 400,
           "description": "Default axis-indicator size in pixels. Resizable in the side panel; saved per-file state wins on return visits."
+        },
+        "matviz.volumetric.maxGridPoints": {
+          "type": ["number", "null"],
+          "default": null,
+          "description": "Cap on N_x * N_y * N_z after load-time decimation. When set, applies to every volumetric load (cube, XSF, CHGCAR) regardless of file size — the parser picks the smallest integer stride that keeps the grid under this cap, applied uniformly across all three axes. null (default) leaves grids at native resolution for files that fit in memory; the byte-path raw loader still applies an internal safety cap (~4×10⁸ points) to stay below the 4 GiB ArrayBuffer ceiling. Set a small value (e.g. 1e7) for faster isosurface rendering on routine charge densities."
         }
       }
     },

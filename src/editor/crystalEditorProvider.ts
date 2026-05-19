@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { CrystalStructure, CrystalTrajectory, VolumetricData } from '../parsers/types';
-import { parseStructureFileTraj } from '../parsers/index';
+import { parseStructureFileTraj, parseStructureFileTrajFromBytes, hasBytePath } from '../parsers/index';
 import { exportCif, exportPoscar } from '../parsers/exporters';
 import path from 'path';
 
@@ -45,9 +45,23 @@ interface ParsedContent {
   volumetric?: VolumetricData;
   // First-frame convenience for export / info display.
   structure: CrystalStructure;
+  // v0.22 Tier 2: when true, the content was loaded via the raw-byte parser
+  // because the file exceeds the TextDocument.getText() ceiling. The
+  // text-buffer reparse loop is disabled in this mode (rereading a 1+ GB
+  // file on every keystroke is untenable, and VSCode disables most text
+  // editing at this size anyway).
+  usedRawBytePath?: boolean;
 }
 
 const PARSE_DEBOUNCE_MS = 250;
+
+/**
+ * v0.22 Tier 2 threshold. Files of this size or larger with a volumetric
+ * extension bypass `TextDocument.getText()` entirely and stream-parse
+ * from `vscode.workspace.fs.readFile`. Chosen well below V8's
+ * MAX_STRING_LENGTH (~512 MiB) to leave safety margin for UTF-8 expansion.
+ */
+const RAW_BYTE_THRESHOLD = 256 * 1024 * 1024;
 
 export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
   private activeWebview: vscode.Webview | undefined;
@@ -83,8 +97,11 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
    */
   private parseDocument(document: vscode.TextDocument): ParsedContent | null {
     const filename = path.basename(document.uri.fsPath);
+    // v0.22 Tier 3: read on every parse so toggling the setting in
+    // settings.json takes effect at the next reparse without reloading.
+    const userCap = vscode.workspace.getConfiguration('matviz.volumetric').get<number | null>('maxGridPoints', null);
     try {
-      const result = parseStructureFileTraj(document.getText(), filename);
+      const result = parseStructureFileTraj(document.getText(), filename, { maxGridPoints: userCap });
       return {
         uri: document.uri,
         trajectory: result.trajectory,
@@ -96,6 +113,41 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
     }
   }
 
+  /**
+   * v0.22 Tier 2: initial parse that picks between the TextDocument path
+   * and the raw-byte path based on file size + volumetric extension. Only
+   * used at editor open — reparse-on-edit uses `parseDocument` and is
+   * suppressed entirely for raw-byte loads.
+   */
+  private async parseDocumentInitial(document: vscode.TextDocument): Promise<ParsedContent | null> {
+    const filename = path.basename(document.uri.fsPath);
+    if (hasBytePath(filename)) {
+      try {
+        const stat = await vscode.workspace.fs.stat(document.uri);
+        if (stat.size >= RAW_BYTE_THRESHOLD) {
+          const bytes = await vscode.workspace.fs.readFile(document.uri);
+          // v0.22 Tier 3: pass user's volumetric grid-point cap into the
+          // parser so it can decimate during ingestion. `null` (the default)
+          // lets the parser fall back to its safety-default cap, which keeps
+          // grids well under the 4 GiB ArrayBuffer ceiling.
+          const userCap = vscode.workspace.getConfiguration('matviz.volumetric').get<number | null>('maxGridPoints', null);
+          const result = parseStructureFileTrajFromBytes(bytes, filename, { maxGridPoints: userCap });
+          return {
+            uri: document.uri,
+            trajectory: result.trajectory,
+            volumetric: result.volumetric,
+            structure: result.trajectory.frames[0],
+            usedRawBytePath: true,
+          };
+        }
+      } catch {
+        // Fall through to the synchronous TextDocument path. If that also
+        // fails the caller will surface the parse-error toast.
+      }
+    }
+    return this.parseDocument(document);
+  }
+
   async resolveCustomTextEditor(
     document: vscode.TextDocument,
     webviewPanel: vscode.WebviewPanel,
@@ -104,8 +156,10 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
     // Initial parse. On failure, show an actionable toast — the webview
     // still mounts but with no structure loaded; the user can dismiss and
     // edit the file in the companion text pane (which is what they see
-    // first via "Open in MatViz" → split pane).
-    let content = this.parseDocument(document);
+    // first via "Open in MatViz" → split pane). v0.22 Tier 2:
+    // `parseDocumentInitial` is async because oversize volumetric files
+    // (>256 MiB) bypass TextDocument and stream-parse from raw bytes.
+    let content = await this.parseDocumentInitial(document);
     if (!content) {
       const filename = path.basename(document.uri.fsPath);
       vscode.window.showErrorMessage(
@@ -163,6 +217,8 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
             lattice: c.volumetric.lattice,
             dims: c.volumetric.dims,
             data: c.volumetric.data,
+            stride: c.volumetric.stride,
+            originalDims: c.volumetric.originalDims,
           },
         });
       }
@@ -197,6 +253,12 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
     let timer: NodeJS.Timeout | null = null;
     const changeSub = vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.uri.toString() !== document.uri.toString()) return;
+      // v0.22 Tier 2: raw-byte-loaded content (huge volumetric files) is
+      // not backed by a meaningful TextDocument view — rereading the
+      // 1+ GB file on every keystroke is untenable, and VSCode's
+      // largeFileOptimizations already disables most editing affordances
+      // at that size. Skip the reparse loop entirely for these documents.
+      if (content?.usedRawBytePath) return;
       if (timer) clearTimeout(timer);
       const seq = ++parseSeq;
       timer = setTimeout(() => {

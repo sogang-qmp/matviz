@@ -1,11 +1,11 @@
-import { CrystalStructure, CrystalTrajectory, VolumetricData } from './types';
+import { CrystalStructure, CrystalTrajectory, VolumetricData, VolumetricLoadOptions, decimateVolumetric } from './types';
 import { detectSymmetry, isSpglibReady } from '../shared/spglibWasm';
 import { parseCif } from './cifParser';
 import { parsePoscar } from './poscarParser';
-import { parseXsf, parseXsfTraj } from './xsfParser';
+import { parseXsf, parseXsfTraj, parseXsfFromBytes } from './xsfParser';
 import { parseXdatcar, parseXdatcarTraj } from './xdatcarParser';
-import { parseChgcar } from './chgcarParser';
-import { parseCube } from './cubeParser';
+import { parseChgcar, parseChgcarFromBytes } from './chgcarParser';
+import { parseCube, parseCubeFromBytes } from './cubeParser';
 import { parseXyz, parseXyzTraj } from './xyzParser';
 import { parsePdb } from './pdbParser';
 import { parseQE } from './qeParser';
@@ -44,8 +44,18 @@ function withSymmetryResult(r: ParseResult): ParseResult {
   return { ...r, structure: withSymmetry(r.structure) };
 }
 
-export function parseStructureFile(content: string, filename: string): ParseResult {
-  return withSymmetryResult(parseStructureFileRaw(content, filename));
+export function parseStructureFile(
+  content: string, filename: string, options?: VolumetricLoadOptions,
+): ParseResult {
+  const r = withSymmetryResult(parseStructureFileRaw(content, filename));
+  // v0.22 Tier 3: user-set `maxGridPoints` applies in the string path too,
+  // as a "fast-render" preference. Null/undefined leaves the grid alone
+  // (the safety default cap is byte-path-only since small files cannot
+  // hit the 4 GiB ArrayBuffer ceiling).
+  if (r.volumetric && options?.maxGridPoints != null) {
+    return { ...r, volumetric: decimateVolumetric(r.volumetric, options) };
+  }
+  return r;
 }
 
 function parseStructureFileRaw(content: string, filename: string): ParseResult {
@@ -120,8 +130,14 @@ export { CrystalStructure, CrystalTrajectory, VolumetricData } from './types';
 // Trajectory-aware entry point. Single-frame formats wrap into a length-1
 // trajectory; symmetry is detected on frame 0 only and copied to the rest
 // to avoid per-frame jitter.
-export function parseStructureFileTraj(content: string, filename: string): ParseTrajectoryResult {
+export function parseStructureFileTraj(
+  content: string, filename: string, options?: VolumetricLoadOptions,
+): ParseTrajectoryResult {
   const r = parseStructureFileTrajRaw(content, filename);
+  // v0.22 Tier 3: same "user-set cap applies" rule as parseStructureFile.
+  if (r.volumetric && options?.maxGridPoints != null) {
+    r.volumetric = decimateVolumetric(r.volumetric, options);
+  }
   if (r.trajectory.frames.length > 0) {
     const f0 = withSymmetry(r.trajectory.frames[0]);
     r.trajectory.frames[0] = f0;
@@ -137,6 +153,48 @@ export function parseStructureFileTraj(content: string, filename: string): Parse
     }
   }
   return r;
+}
+
+/**
+ * Byte-path entry point (v0.22 Tier 2). Mirrors `parseStructureFileTraj`
+ * for volumetric formats whose ASCII size exceeds Node's MAX_STRING_LENGTH
+ * (~512 MiB on x64), where calling `TextDocument.getText()` throws
+ * `RangeError: Invalid string length`. Supported formats: Gaussian Cube,
+ * XSF (single-frame BLOCK_DATAGRID_3D), CHGCAR-family.
+ */
+export function parseStructureFileTrajFromBytes(
+  bytes: Uint8Array,
+  filename: string,
+  options?: VolumetricLoadOptions,
+): ParseTrajectoryResult {
+  const lower = filename.toLowerCase();
+  let result: ParseResult;
+  if (lower.endsWith('.xsf') || lower.endsWith('.axsf')) {
+    const r = parseXsfFromBytes(bytes, options);
+    const { volumetric, ...structure } = r;
+    result = { structure: structure as CrystalStructure, volumetric };
+  } else if (lower.endsWith('.cube') || lower.endsWith('.cub')) {
+    result = parseCubeFromBytes(bytes, options);
+  } else if (lower === 'chgcar' || lower === 'aeccar0' || lower === 'aeccar2' || lower === 'parchg') {
+    result = parseChgcarFromBytes(bytes, options);
+  } else {
+    throw new Error(`parseStructureFileTrajFromBytes: unsupported byte-path format ${filename}`);
+  }
+  const f0 = withSymmetry(result.structure);
+  return {
+    trajectory: { frames: [f0], latticeMode: 'fixed' },
+    volumetric: result.volumetric,
+  };
+}
+
+/** File extensions that have a byte-path parser available. */
+export function hasBytePath(filename: string): boolean {
+  const lower = filename.toLowerCase();
+  return (
+    lower.endsWith('.xsf') || lower.endsWith('.axsf') ||
+    lower.endsWith('.cube') || lower.endsWith('.cub') ||
+    lower === 'chgcar' || lower === 'aeccar0' || lower === 'aeccar2' || lower === 'parchg'
+  );
 }
 
 function parseStructureFileTrajRaw(content: string, filename: string): ParseTrajectoryResult {
