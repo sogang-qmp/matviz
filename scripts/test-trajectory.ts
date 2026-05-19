@@ -1,14 +1,5 @@
 /**
- * Verification for v0.17.1.0 — CrystalTrajectory data contract + parser bridge.
- *
- * Asserts:
- *   1. parseStructureFileTraj wraps single-frame fixture as 1-frame trajectory
- *   2. trajectory.frames[0] equals what parseStructureFile would return
- *   3. latticeMode='fixed' on wrap
- *   4. multi-frame format detection is dormant in 17.1.0 (AXSF still wraps to
- *      length 1 — multi-frame parsing arrives in 17.1.1)
- *   5. existing single-frame parsers untouched (regression-free)
- *
+ * Verification for CrystalTrajectory data contract + parser bridge.
  * Run via: node dist/test-trajectory.js
  */
 
@@ -18,8 +9,8 @@ import { parseStructureFile, parseStructureFileTraj } from '../src/parsers/index
 
 const ROOT = process.cwd();
 
-function fail(msg: string): never { console.error(`✗ FAIL: ${msg}`); process.exit(1); }
-function pass(msg: string): void { console.log(`✓ ${msg}`); }
+function fail(msg: string): never { console.error(`FAIL: ${msg}`); process.exit(1); }
+function pass(msg: string): void { console.log(`PASS: ${msg}`); }
 
 // ---- Test 1: single-frame CIF wraps into 1-frame trajectory ----
 {
@@ -61,7 +52,7 @@ function pass(msg: string): void { console.log(`✓ ${msg}`); }
   pass(`graphene.xsf: single-frame XSF correctly wraps as 1-frame trajectory`);
 }
 
-// ---- Test 3c: XDATCAR NVE (fixed-cell, v0.17.1.2) ----
+// ---- Test 3c: XDATCAR NVE (fixed-cell) ----
 {
   const p = path.join(ROOT, 'test/fixtures/test-xdatcar-nve');
   const content = fs.readFileSync(p, 'utf8');
@@ -85,7 +76,7 @@ function pass(msg: string): void { console.log(`✓ ${msg}`); }
   pass(`xdatcar-nve: 5 frames, fixed lattice ref shared, Na fractional→cartesian drift correct`);
 }
 
-// ---- Test 3e: extended XYZ multi-frame (v0.17.1.3) ----
+// ---- Test 3e: extended XYZ multi-frame ----
 {
   const p = path.join(ROOT, 'test/fixtures/test-extxyz.xyz');
   const content = fs.readFileSync(p, 'utf8');
@@ -119,7 +110,7 @@ function pass(msg: string): void { console.log(`✓ ${msg}`); }
   pass(`water.xyz: plain XYZ wraps as 1-frame trajectory (parseXyzTraj single-frame branch)`);
 }
 
-// ---- Test 3d: XDATCAR NPT (variable-cell, v0.17.1.2) ----
+// ---- Test 3d: XDATCAR NPT (variable-cell) ----
 {
   const p = path.join(ROOT, 'test/fixtures/test-xdatcar-npt');
   const content = fs.readFileSync(p, 'utf8');
@@ -136,7 +127,7 @@ function pass(msg: string): void { console.log(`✓ ${msg}`); }
   pass(`xdatcar-npt: 3 frames, latticeMode=per-frame, lattice a grew 5.640 → 5.700 → 5.760`);
 }
 
-// ---- Test 3b: AXSF multi-frame (v0.17.1.1) ----
+// ---- Test 3b: AXSF multi-frame ----
 {
   const p = path.join(ROOT, 'test/fixtures/test-trajectory.axsf');
   const content = fs.readFileSync(p, 'utf8');
@@ -193,9 +184,9 @@ function pass(msg: string): void { console.log(`✓ ${msg}`); }
   if (traj.frames[0].positions.length !== traj.frames[0].species.length) {
     fail(`invariant: positions/species length mismatch`);
   }
-  // v0.16 optional fields preserved on frame 0
-  if (!traj.frames[0].magMom) fail(`v0.16 magMom not preserved through trajectory wrap`);
-  pass(`invariants verified: frames>=1, latticeMode valid, positions/species aligned, v0.16 magMom preserved`);
+  // Optional fields preserved on frame 0
+  if (!traj.frames[0].magMom) fail(`magMom not preserved through trajectory wrap`);
+  pass(`invariants verified: frames>=1, latticeMode valid, positions/species aligned, magMom preserved`);
 }
 
-console.log('\nAll v0.17.1.0 trajectory-bridge tests passed.');
+console.log('\nAll trajectory-bridge tests passed.');

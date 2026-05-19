@@ -1,16 +1,10 @@
 /**
  * Spglib (via @spglib/moyo-wasm) symmetry detection — shared between the
- * webview and the CLI renderer. Same TypeScript wrapper, two callers; only
- * the WASM URL bootstrap differs:
+ * webview and the CLI renderer. Only the WASM bootstrap differs:
  *   - webview: `init('<webview-resource-uri>/moyo_wasm_bg.wasm')`
- *   - CLI:     `init('file:///abs/path/to/moyo_wasm_bg.wasm')` or via
- *              `initSync(buffer)` from `fs.readFileSync(...)`.
+ *   - CLI:     `initSync(buffer)` from `fs.readFileSync(...)`.
  *
- * Locked to package `@spglib/moyo-wasm@^0.7.9` (spglib org's official Rust
- * port). API surface used: `analyze_cell(cellJson, symprec, setting) →
- * MoyoDataset`. Wyckoff labels and operations are returned alongside space
- * group / Hermann-Mauguin so v0.20.x bonus features unlock without a
- * second WASM call.
+ * API surface used: `analyze_cell(cellJson, symprec, setting) → MoyoDataset`.
  */
 
 import init, { initSync, analyze_cell, type MoyoDataset } from '@spglib/moyo-wasm';

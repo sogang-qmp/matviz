@@ -1,13 +1,5 @@
 /**
- * Verification for v0.16.1 (2/3) — Jacobi 3×3 symmetric eigendecomposition.
- *
- * Asserts:
- *   1. Identity → eigenvalues [1,1,1], orthonormal vectors
- *   2. Diagonal → eigenvalues = diagonal entries
- *   3. Known closed-form case (rank-1 + diagonal)
- *   4. Reconstruction: V · diag(λ) · Vᵀ ≈ M for several random symmetric M
- *   5. Real Uᵢⱼ from test-aniso.cif (Ca prolate-z)
- *
+ * Verification: Jacobi 3×3 symmetric eigendecomposition.
  * Run via: node dist/test-symeigen.js
  */
 
@@ -18,12 +10,12 @@ function approx(a: number, b: number, tol = 1e-6): boolean {
 }
 
 function fail(msg: string): never {
-  console.error(`✗ FAIL: ${msg}`);
+  console.error(`FAIL: ${msg}`);
   process.exit(1);
 }
 
 function pass(msg: string): void {
-  console.log(`✓ ${msg}`);
+  console.log(`PASS: ${msg}`);
 }
 
 function reconstruct(r: SymEigenResult): SymMatrix3 {
@@ -140,4 +132,4 @@ function matStr(M: SymMatrix3): string {
   pass('sortDescending: pairs values + vectors correctly');
 }
 
-console.log('\nAll v0.16.1 (2/3) Jacobi eigen tests passed.');
+console.log('\nAll Jacobi eigen tests passed.');

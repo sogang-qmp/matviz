@@ -142,15 +142,10 @@ export function parseXyz(content: string): CrystalStructure {
 }
 
 /**
- * v0.17.1.3 — multi-frame extended XYZ parser. ASE writes trajectories as
- * concatenated single-frame XYZ blocks: each frame begins with the atom
- * count line. We walk frames sequentially until EOF.
- *
- * latticeMode: 'fixed' if every frame's parsed Lattice matrix is bit-equal
- * to frame 0's; 'per-frame' otherwise. Frames with the same lattice values
- * STILL get distinct lattice arrays in this parser (one per frame); after
- * detection we collapse to a shared REFERENCE for fixed-cell so the
- * renderer's setFrame optimization works.
+ * Multi-frame extended XYZ parser. ASE writes trajectories as concatenated
+ * single-frame XYZ blocks. Fixed-cell trajectories collapse to a shared
+ * lattice reference so the renderer's setFrame can short-circuit cell
+ * wireframe rebuild.
  */
 export function parseXyzTraj(content: string): CrystalTrajectory {
   const lines = content.split('\n').map(l => l.trim());

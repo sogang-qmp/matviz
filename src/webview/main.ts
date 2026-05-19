@@ -13,12 +13,10 @@ const vscode = acquireVsCodeApi();
 const canvas = document.getElementById('canvas') as HTMLCanvasElement;
 const tooltip = document.getElementById('tooltip') as HTMLDivElement;
 
-// V2 info pill (bottom-left). Canonical formula readout, always visible
+// Info pill (bottom-left). Canonical formula readout, always visible
 // (shifts horizontally to clear the side panel via body.panel-open). When
-// an atom is clicked, the picked-atom info appears as an additional
-// segment after the meta — the pill is the single integrated readout for
-// both structure-level and atom-level info (replacing the legacy floating
-// tooltip).
+// an atom is clicked, the picked-atom info appends as an extra segment
+// after the meta.
 const infoPill = document.getElementById('info-pill') as HTMLDivElement | null;
 const pillFormula = document.getElementById('pill-formula') as HTMLSpanElement | null;
 const pillMeta = document.getElementById('pill-meta') as HTMLSpanElement | null;
@@ -58,13 +56,12 @@ if (topBar) {
 
 const renderer = new CrystalRenderer(canvas);
 
-// v0.20 (19.3) — property-panel undo/redo stack. Records side-panel
-// edits only (element color/radius/visibility, per-pair bond min/max,
-// per-pair bond enable). Camera, selection, supercell, display style
-// are intentionally excluded. Session-scoped (not persisted).
+// Property-panel undo/redo stack. Records side-panel edits only (element
+// color/radius/visibility, per-pair bond min/max/enable). Camera, selection,
+// supercell, and display style are intentionally excluded. Session-scoped.
 const undoStack = new UndoStack(50);
 
-// --- Side panel toggle (V2 is overlay-only; offset/overlay toggle removed) ---
+// --- Side panel toggle ---
 const panelToggle = document.getElementById('panel-toggle') as HTMLButtonElement;
 const sidePanel = document.getElementById('side-panel') as HTMLDivElement;
 const MODE_BAR_WIDTH = 40;
@@ -75,7 +72,7 @@ const SVG_CHEV_L = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" 
 const SVG_CHEV_R = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg>';
 
 // `panel-open` body class drives layout that depends on whether the side
-// panel is visible (e.g. info-pill horizontal offset in Feature 18.6d).
+// panel is visible (e.g. info-pill horizontal offset).
 function applyPanelOpenClass() {
   const open = !sidePanel.classList.contains('collapsed');
   document.body.classList.toggle('panel-open', open);
@@ -113,8 +110,8 @@ if (panelResize && sidePanel) {
   });
   window.addEventListener('pointermove', (e) => {
     if (!resizing) return;
-    // Panel sits at left = MODE_BAR_WIDTH + 12px gap (V2 floating spec); the
-    // pointer-x maps to the panel's right edge → width = pointer-x - that gap.
+    // Panel sits at left = MODE_BAR_WIDTH + 12px gap; pointer-x maps to the
+    // panel's right edge → width = pointer-x - that gap.
     const newWidth = Math.max(180, Math.min(420, e.clientX - MODE_BAR_WIDTH - 12));
     sidePanel.style.width = newWidth + 'px';
     // Keep --side-panel-w in sync so dependent calc()s — info-pill's
@@ -133,10 +130,10 @@ if (panelResize && sidePanel) {
 
 // --- Side panel controls ---
 
-// Supercell — V2 `− N +` horizontal stepper per axis (no upper bound).
-// Inputs use type="text" + inputmode="numeric" so native browser spinners
-// stay out of the way; ±buttons are siblings inside .sc-steppers and
-// dispatch 'change' on the input so updateSupercell fires.
+// Supercell — `− N +` horizontal stepper per axis. Inputs use type="text"
+// + inputmode="numeric" so native browser spinners stay out of the way;
+// ±buttons are siblings inside .sc-steppers and dispatch 'change' on the
+// input so updateSupercell fires.
 const scA = document.getElementById('sc-a') as HTMLInputElement;
 const scB = document.getElementById('sc-b') as HTMLInputElement;
 const scC = document.getElementById('sc-c') as HTMLInputElement;
@@ -178,10 +175,9 @@ function setupSupercellStepper(input: HTMLInputElement | null) {
 [scA, scB, scC].forEach((el) => setupSupercellStepper(el));
 [scA, scB, scC].forEach((el) => el?.addEventListener('change', updateSupercell));
 
-// Display style — V2 chips replacing the old <select>. Source-of-truth lives
-// in the active chip's data-style attr; keep a `currentDisplayStyle` mirror
-// for saved-state writeback. styleSelect alias retained as the chips
-// container for the saveState `change`-event collector.
+// Display style — chip buttons. Source-of-truth lives in the active chip's
+// data-style attr; `currentDisplayStyle` mirror is for saved-state writeback.
+// The chips container also acts as the saveState `change`-event collector.
 const styleChips = document.getElementById('display-style-chips') as HTMLElement;
 let currentDisplayStyle: DisplayStyle = 'ball-and-stick';
 function applyDisplayStyle(s: DisplayStyle, opts: { dispatch?: boolean } = {}) {
@@ -211,7 +207,7 @@ if (impostorCheck) {
   impostorCheck.addEventListener('change', () => renderer.setImpostorEnabled(impostorCheck.checked));
 }
 
-// 16.1 Thermal ellipsoids (hidden until structure with thermalAniso loads)
+// Thermal ellipsoids (hidden until structure with thermalAniso loads)
 const ellipsoidsCheck = document.getElementById('ellipsoids-check') as HTMLInputElement;
 const ellipsoidContour50 = document.getElementById('ellipsoid-contour-50') as HTMLInputElement;
 const ellipsoidContour90 = document.getElementById('ellipsoid-contour-90') as HTMLInputElement;
@@ -238,7 +234,7 @@ function updateEllipsoidsSectionVisibility() {
   }
 }
 
-// 16.2 Partial occupancy section visibility
+// Partial occupancy section visibility
 const partialOccCheck = document.getElementById('partial-occ-check') as HTMLInputElement;
 if (partialOccCheck) {
   partialOccCheck.addEventListener('change', () => renderer.setShowPartialOccupancy(partialOccCheck.checked));
@@ -254,8 +250,8 @@ function updatePartialOccupancySectionVisibility() {
   }
 }
 
-// 17.1.4 + 17.2.1 Trajectory playback (frame slider + play/pause + rAF loop +
-// speed slider + frame input + once-only loop + keyboard)
+// Trajectory playback (frame slider + play/pause + rAF loop + speed slider
+// + frame input + loop checkbox + keyboard).
 const trajPlayBtn = document.getElementById('traj-play-btn') as HTMLButtonElement | null;
 const trajSlider = document.getElementById('traj-slider') as HTMLInputElement | null;
 const trajFrameInput = document.getElementById('traj-frame-input') as HTMLInputElement | null;
@@ -278,8 +274,8 @@ function setTrajFrame(idx: number) {
   if (trajFrameLabel) {
     trajFrameLabel.textContent = `/ ${renderer.getFrameCount()}`;
   }
-  // 17.2.3: refresh comparison stats panel since renderer.setFrame already
-  // re-ran recomputeComparison() (when active) and updated lastStats.
+  // Refresh comparison stats panel since renderer.setFrame already re-ran
+  // recomputeComparison() (when active) and updated lastStats.
   updateComparisonStatsUI();
 }
 
@@ -326,7 +322,7 @@ if (trajSlider) {
     setTrajFrame(parseInt(trajSlider.value));
   });
 }
-// 17.2.1 frame number direct input (Enter to jump)
+// Frame number direct input (Enter to jump)
 if (trajFrameInput) {
   trajFrameInput.addEventListener('change', () => {
     if (trajPlaying) trajSetPlaying(false);
@@ -334,14 +330,14 @@ if (trajFrameInput) {
     if (Number.isFinite(n)) setTrajFrame(n - 1);
   });
 }
-// 17.2.1 speed slider
+// Speed slider
 if (trajSpeedSlider) {
   trajSpeedSlider.addEventListener('input', () => {
     trajSpeed = parseFloat(trajSpeedSlider.value);
     if (trajSpeedLabel) trajSpeedLabel.textContent = `${trajSpeed.toFixed(2)}×`;
   });
 }
-// 17.2.1 Phases section (list rendering + Add Phase btn + Comparison toggle)
+// Phases section (list rendering + Add Phase btn + Comparison toggle)
 function rebuildPhasesList() {
   const list = document.getElementById('phases-list');
   if (!list) return;
@@ -404,7 +400,7 @@ function updatePhasesSectionVisibility() {
   updateComparisonStatsUI();
 }
 
-// 17.2.3 RMSD/displacement summary panel.
+// RMSD/displacement summary panel.
 function updateComparisonStatsUI() {
   const div = document.getElementById('comparison-stats');
   if (!div) return;
@@ -437,19 +433,18 @@ if (compareToggle) {
       const r = renderer.compareToPhase();
       if (!r.ok) {
         compareToggle.checked = false;
-        // 17.2.1 toast upgrade — surface failure reason via vscode notification
+        // Surface failure reason via vscode notification
         vscode.postMessage({ type: 'comparisonResult', ok: false, reason: r.reason });
       }
     } else {
       renderer.clearComparison();
     }
-    // 17.2.3: refresh stats panel after toggle change
     updateComparisonStatsUI();
   });
 }
 
-// 17.2.1 keyboard: Space toggles play/pause when trajectory is loaded and
-// no input/textarea has focus.
+// Keyboard: Space toggles play/pause when trajectory is loaded and no
+// input/textarea has focus.
 window.addEventListener('keydown', (e) => {
   if (e.code !== 'Space') return;
   if (!renderer.hasTrajectory()) return;
@@ -503,7 +498,7 @@ function updateTrajectorySectionVisibility() {
   }
 }
 
-// Per-atom vector overlay (generalized v0.18 — was magmom-only).
+// Per-atom vector overlay.
 const vectorCheck = document.getElementById('vector-check') as HTMLInputElement;
 const vecCmapRedblue = document.getElementById('vec-cmap-redblue') as HTMLInputElement;
 const vecCmapViridis = document.getElementById('vec-cmap-viridis') as HTMLInputElement;
@@ -632,18 +627,16 @@ function setupNumberStepper(input: HTMLInputElement | null) {
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
 }
-// Supercell inputs (sc-a/b/c) intentionally left as native type="number"
-// here — Feature 18.6 will replace them with V2's `− N +` horizontal stepper
-// (no upper bound), which has different markup than this generic .num-wrap.
+// Supercell inputs (sc-a/b/c) use a custom `− N +` stepper above; the
+// generic .num-wrap stepper here is only for step-angle / step-zoom.
 ['step-angle', 'step-zoom'].forEach((id) => {
   setupNumberStepper(document.getElementById(id) as HTMLInputElement | null);
 });
 
-// ----- Toggle switches (V2) -------------------------------------------------
+// --- Toggle switches ---
 // Native checkbox stays in DOM (label-clickable, focusable, change-event
-// intact); a sibling .switch span renders the visual control. Walks every
-// .toggle input[type=checkbox] once at startup. Re-callable when new
-// .toggle rows are inserted dynamically (atoms/bonds/poly-centers UIs).
+// intact); a sibling .switch span renders the visual control. Re-callable
+// when new .toggle rows are inserted dynamically.
 function injectSwitch(input: HTMLInputElement, sm: boolean) {
   if (input.dataset.switchInjected === '1') return;
   input.dataset.switchInjected = '1';
@@ -678,7 +671,7 @@ function setupToggleSwitches(root: ParentNode = document) {
 }
 setupToggleSwitches();
 
-// ----- Digit shortcuts 1-4 → display style (V2 Feature 18.7) ---------------
+// --- Digit shortcuts 1-4 → display style ---
 // Skip when an input/textarea/contenteditable is focused so digit entry in
 // step inputs and supercell values still works.
 const STYLE_KEYS: Record<string, DisplayStyle> = {
@@ -719,7 +712,7 @@ if (celldashCheck) celldashCheck.addEventListener('change', () => renderer.toggl
 const axisSizeSlider = document.getElementById('axis-size') as HTMLInputElement;
 if (axisSizeSlider) axisSizeSlider.addEventListener('input', () => renderer.setAxisIndicatorSize(parseInt(axisSizeSlider.value)));
 
-// ----- Axis indicator drag (right-click + drag) -----------------------------
+// --- Axis indicator drag (right-click + drag) ---
 // The axis indicator is rendered as a viewport region on the canvas (not a
 // DOM element), so we hit-test against its bounding rect on pointerdown.
 // Capture phase + stopImmediatePropagation prevents OrbitControls from
@@ -785,10 +778,10 @@ if (axisSizeSlider) axisSizeSlider.addEventListener('input', () => renderer.setA
   canvas.addEventListener('pointercancel', endDrag, { capture: true });
 }
 
-// ===== Measure HUD (V2 Feature 18.8) ========================================
-// Top-right glass HUD shown only in measure mode. Tracks the recently-clicked
-// atoms (`measureHistory`) and the most recent measurement value emitted by
-// the renderer (`lastMeasurement`). The renderer creates Distance / Angle /
+// --- Measure HUD ---
+// Top-right HUD shown only in measure mode. Tracks recently-clicked atoms
+// (`measureHistory`) and the most recent measurement value emitted by the
+// renderer (`lastMeasurement`). Renderer creates Distance / Angle /
 // Dihedral measurements at history-lengths 2 / 3 / 4 and clears its own
 // selection at length 4 — `measurePendingClear` mirrors that so the next
 // atom-select kicks off a fresh measurement cycle.
@@ -865,7 +858,7 @@ function renderMeasureHud() {
     syms.forEach((el, i) => { el.style.color = colors[i]; });
   }
 
-  // Δ rows — only for distance measurements (V2 spec).
+  // Δ rows — only for distance measurements.
   if (measureDelta && measureDeltaFrac && measureDeltaCart) {
     if (m && m.type === 'distance' && measureHistory.length >= 2) {
       const a = measureHistory[measureHistory.length - 2];
@@ -1041,11 +1034,9 @@ window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
   // Skip while IME (e.g. Korean Hangul) is composing — those keypresses belong to the IME.
   if (e.isComposing || e.keyCode === 229) return;
-  // v0.20 (19.3) — property-panel undo/redo. Ctrl+Z / Cmd+Z (undo),
-  // Ctrl+Shift+Z / Cmd+Shift+Z (redo). Skips when an input/textarea
-  // is focused (the early-return above already handles that case),
-  // so the side-by-side text editor's own undo still works as
-  // expected when the text pane has focus.
+  // Property-panel undo/redo. Ctrl+Z / Cmd+Z (undo), Shift variant for redo.
+  // Skips when an input/textarea is focused (handled by the early-return
+  // above), so the companion text editor's own undo still works.
   if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyZ' || e.key === 'z' || e.key === 'Z')) {
     if (e.shiftKey) undoStack.redo();
     else undoStack.undo();
@@ -1081,9 +1072,9 @@ window.addEventListener('keydown', (e) => {
 
 // --- Picking callbacks ---
 // Atom select → pill-selected segment (integrated into the bottom-left
-// info pill). Measurements → V2 Measure HUD only (top-right). The legacy
-// floating tooltip is no longer used here; it stays in the DOM for
-// possible future hover affordances but is always hidden in v0.18.0.
+// info pill). Measurements → Measure HUD only (top-right). The legacy
+// floating tooltip stays in the DOM for possible future hover affordances
+// but is always hidden.
 renderer.setAtomSelectCallback((data) => {
   if (data) {
     const f = data.fractional;
@@ -1135,8 +1126,7 @@ new MutationObserver(() => renderer.updateTheme())
 
 // --- State persistence ---
 // `layoutMode` is retained in the type union for forward-compatibility:
-// older saved state may still carry it; we read it but no longer act on it
-// (V2 is overlay-only as of v0.18.0).
+// older saved state may still carry it; we read it but no longer act on it.
 type PersistedState = ReturnType<typeof renderer.getState> & {
   layoutMode?: 'offset' | 'overlay';
   panelCollapsed?: boolean;
@@ -1165,11 +1155,10 @@ window.addEventListener('wheel', debouncedSave);
 cameraBtn?.addEventListener('click', debouncedSave);
 paletteBtn?.addEventListener('click', debouncedSave);
 
-// v0.20 (19.2) — apply user-configurable defaults from `matviz.defaults.*`
-// VSCode settings BEFORE the localStorage state restore. Settings provide
-// initial values for fresh opens; localStorage takes precedence on return
-// visits to the same URI (the renderer's setters are idempotent so the
-// double-apply is safe).
+// Apply user-configurable defaults from `matviz.defaults.*` VSCode settings
+// BEFORE the localStorage state restore. Settings provide initial values for
+// fresh opens; localStorage takes precedence on return visits to the same
+// URI (the renderer's setters are idempotent so double-apply is safe).
 const matvizDefaults = (window as unknown as {
   MATVIZ_DEFAULTS?: {
     style?: string; palette?: string; showBonds?: boolean;
@@ -1193,8 +1182,7 @@ if (matvizDefaults) {
     renderer.setAxisIndicatorSize(matvizDefaults.axisIndicatorSize);
   }
   // bondCutoffPad: applied to per-pair defaults inside the renderer's
-  // bond-detection path. Setter is exposed but if not present yet, this
-  // becomes a no-op until v0.20.x wires it.
+  // bond-detection path. Setter is optional; no-op if not exposed.
   if (typeof matvizDefaults.bondCutoffPad === 'number' && typeof (renderer as unknown as { setBondCutoffPad?: (n: number) => void }).setBondCutoffPad === 'function') {
     (renderer as unknown as { setBondCutoffPad: (n: number) => void }).setBondCutoffPad(matvizDefaults.bondCutoffPad);
   }
@@ -1203,7 +1191,7 @@ if (matvizDefaults) {
 const savedState = vscode.getState() as PersistedState | null;
 if (savedState && savedState.schemaVersion === 1) {
   renderer.restoreState(savedState);
-  // savedState.layoutMode silently ignored (V2 is overlay-only).
+  // savedState.layoutMode silently ignored.
   if (savedState.panelCollapsed) {
     sidePanel.classList.add('collapsed');
     if (panelToggle) { panelToggle.innerHTML = SVG_CHEV_R; panelToggle.title = 'Show side panel'; }
@@ -1530,11 +1518,11 @@ window.addEventListener('message', (event) => {
       updateEllipsoidsSectionVisibility();
       updatePartialOccupancySectionVisibility();
       updateAtomVectorsSectionVisibility();
-      // 17.1.4: hide trajectory section if previously a multi-frame file was
-      // loaded in this webview session (loadStructure resets trajectory).
+      // Hide trajectory section if a multi-frame file was loaded earlier in
+      // this webview session (loadStructure resets trajectory).
       updateTrajectorySectionVisibility();
-      // 17.2.1: phases section visibility (always shown when a structure
-      // is loaded, even before any phase is added).
+      // Phases section is always shown once a structure loads, even before
+      // any phase is added.
       updatePhasesSectionVisibility();
       break;
     }
@@ -1555,10 +1543,10 @@ window.addEventListener('message', (event) => {
     }
     case 'clearWulff': renderer.clearWulff(); break;
     case 'loadTrajectory': {
-      // 17.1.0: trajectory entry. For 1-frame trajectories the path is
-      // observably equivalent to loadStructure; for >1 frame, 17.1.4 wires
-      // up the side-panel slider via updateTrajectorySectionVisibility().
-      // 17.1.4: stop any in-progress playback before swapping data.
+      // Trajectory entry. For 1-frame trajectories this is observably
+      // equivalent to loadStructure; multi-frame wires the side-panel
+      // slider via updateTrajectorySectionVisibility().
+      // Stop any in-progress playback before swapping data.
       trajSetPlaying(false);
       undoStack.clear();
       renderer.loadTrajectory(msg.data);

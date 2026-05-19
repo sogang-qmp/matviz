@@ -2,23 +2,18 @@ import * as THREE from 'three';
 import { jacobiSym3, SymMatrix3 } from './math/symEigen';
 
 /**
- * Thermal-ellipsoid renderer (v0.16.1).
+ * Thermal-ellipsoid renderer.
  *
  * Renders one InstancedMesh per element where each instance is a unit
- * sphere transformed by  T(center) · R · diag(r₁, r₂, r₃)  to take the
- * shape of the displacement-tensor probability surface. The U_ij tensor
- * (Å²) is decomposed to eigenvalues λᵢ; semi-axes are
- *   rᵢ = scale · sqrt(max(λᵢ, 0))
- * with scale = sqrt(2.366) for the 50% probability contour or
- * sqrt(6.251) for 90% (χ²₃ table, hard-coded — no erfc lib pulled in).
+ * sphere transformed by T(center) · R · diag(r₁, r₂, r₃) into the
+ * displacement-tensor probability surface. Uᵢⱼ (Å²) is decomposed to
+ * eigenvalues λᵢ; semi-axes rᵢ = scale · sqrt(max(λᵢ, 0)) with
+ * scale = sqrt(2.366) for the 50% contour or sqrt(6.251) for 90%
+ * (χ²₃ quantiles hard-coded — no erfc lib pulled in).
  *
  * Phong material is forced (no impostor): the sphere-impostor shader
- * assumes uniform radius via instanceMatrix; an axis-scaled ellipsoid
- * would distort its ray-sphere test. Per-instance impostor for ellipsoids
- * is deferred (plan §결정 게이트 #1).
- *
- * The caller passes Uᵢⱼ in Å² (no rotation by symmetry op applied in
- * v0.16.1 first cut — see cifParser.ts §J2 limitation).
+ * assumes uniform radius via instanceMatrix; axis-scaled ellipsoids
+ * would distort its ray-sphere test.
  */
 
 export type Uij = { U11: number; U22: number; U33: number; U12: number; U13: number; U23: number };

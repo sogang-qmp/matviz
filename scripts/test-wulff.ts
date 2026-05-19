@@ -1,20 +1,13 @@
 /**
- * Verification for v0.16.4 — Wulff polytope construction.
- *
- * Asserts:
- *   1. Cube (6 face-aligned planes at distance 1) → 8 vertices, 12 triangles, volume ≈ 8
- *   2. Single plane → throws (unbounded — fallback box would still have many verts)
- *   3. Cube + extra (1,1,1) plane → cuts off one corner → cuboctahedron-like (>8 verts)
- *   4. Au cuboctahedron from cubic lattice via planesFromMillerIndices — produces convex shape
- *
+ * Verification: Wulff polytope construction.
  * Run via: node dist/test-wulff.js
  */
 
 import { computeWulffGeometry, planesFromMillerIndices, type WulffPlane } from '../src/webview/wulff';
 
 function approx(a: number, b: number, tol = 1e-3): boolean { return Math.abs(a - b) < tol; }
-function fail(msg: string): never { console.error(`✗ FAIL: ${msg}`); process.exit(1); }
-function pass(msg: string): void { console.log(`✓ ${msg}`); }
+function fail(msg: string): never { console.error(`FAIL: ${msg}`); process.exit(1); }
+function pass(msg: string): void { console.log(`PASS: ${msg}`); }
 
 function geometryStats(geo: { attributes: { position: { array: ArrayLike<number>; count: number } }; index: { array: ArrayLike<number>; count: number } | null }): { vertexCount: number; triangleCount: number } {
   const vertexCount = geo.attributes.position.count;
@@ -124,4 +117,4 @@ function geometryStats(geo: { attributes: { position: { array: ArrayLike<number>
   pass(`Au cuboctahedron (14 planes via planesFromMillerIndices): ${stats.triangleCount} triangles`);
 }
 
-console.log('\nAll v0.16.4 Wulff tests passed.');
+console.log('\nAll Wulff tests passed.');

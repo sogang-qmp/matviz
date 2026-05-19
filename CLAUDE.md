@@ -21,7 +21,7 @@ Data flow: file → parser → `CrystalStructure` JSON → `postMessage` → web
 ### Key types
 
 - `CrystalStructure` (`src/parsers/types.ts`): the universal intermediate — lattice vectors, species[], cartesian positions[], pbc.
-- `CrystalEditorProvider` (`src/editor/crystalEditorProvider.ts`): `CustomReadonlyEditorProvider<CrystalDocument>`. File association via `package.json` `contributes.customEditors`.
+- `CrystalEditorProvider` (`src/editor/crystalEditorProvider.ts`): `CustomTextEditorProvider` — receives a `vscode.TextDocument` and reparses on edit (debounced). Migrated from the older `CustomReadonlyEditorProvider<CrystalDocument>` model in v0.19. File association via `package.json` `contributes.customEditors`.
 - `CrystalRenderer` (`src/webview/renderer.ts`): owns the Three.js scene. Groups: `atomGroup` (InstancedMesh per element), `bondGroup` (split-color cylinders), `cellGroup` (LineSegments wireframe).
 
 ### Element data duplication

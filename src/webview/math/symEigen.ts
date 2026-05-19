@@ -1,8 +1,8 @@
 /**
  * Eigendecomposition of a 3×3 real symmetric matrix via cyclic Jacobi
- * rotations. Used by v0.16.1 to convert anisotropic-displacement tensors
- * Uᵢⱼ into ellipsoid principal axes (eigenvalues = squared semi-axis
- * lengths in some scale; eigenvectors = principal directions).
+ * rotations. Used to convert anisotropic-displacement tensors Uᵢⱼ into
+ * ellipsoid principal axes (eigenvalues ∝ squared semi-axis lengths,
+ * eigenvectors = principal directions).
  *
  * Three.js's Matrix3 has no eigen routine and the symmetric case admits
  * a stable ~30-line direct solver, so no external dependency is needed.

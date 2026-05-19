@@ -1,13 +1,5 @@
 /**
- * Verification for v0.16.3 — magnetic moment parsing.
- *
- * Asserts:
- *   1. POSCAR with MAGMOM in title: collinear N-token form → [0,0,m] per atom
- *   2. POSCAR without MAGMOM: magMom undefined
- *   3. POSCAR with mismatched token count: magMom undefined (silent)
- *   4. POSCAR with non-collinear 3N tokens: per-atom 3-vector
- *   5. parseMagmomFromTitle() compressed form rejected (k*v not supported)
- *
+ * Verification: magnetic moment parsing.
  * Run via: node dist/test-magmom.js
  */
 
@@ -18,8 +10,8 @@ import { parsePoscar, parseMagmomFromTitle } from '../src/parsers/poscarParser';
 const ROOT = process.cwd();
 
 function approx(a: number, b: number, tol = 1e-6): boolean { return Math.abs(a - b) < tol; }
-function fail(msg: string): never { console.error(`✗ FAIL: ${msg}`); process.exit(1); }
-function pass(msg: string): void { console.log(`✓ ${msg}`); }
+function fail(msg: string): never { console.error(`FAIL: ${msg}`); process.exit(1); }
+function pass(msg: string): void { console.log(`PASS: ${msg}`); }
 
 // ---- Test 1: NiO AFM POSCAR with collinear MAGMOM ----
 {
@@ -87,4 +79,4 @@ function pass(msg: string): void { console.log(`✓ ${msg}`); }
   pass(`silicon.poscar: ${s.species.length} atoms (no parser regression)`);
 }
 
-console.log('\nAll v0.16.3 magmom tests passed.');
+console.log('\nAll magmom tests passed.');

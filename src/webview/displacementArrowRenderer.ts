@@ -2,19 +2,13 @@ import * as THREE from 'three';
 import type { DisplacementPair } from './nnMatching';
 
 /**
- * v0.17.1 (17.3.1) — Displacement arrow renderer for comparison mode.
+ * Displacement arrow renderer for comparison mode.
  *
- * Structurally mirrors magneticArrowRenderer (cone tip + cylinder shaft
- * InstancedMesh, per-instance Quaternion-based orientation, instanceColor).
- * Differences:
- *   - Colormap: Viridis-only (displacement magnitude has no sign convention,
- *     so red-blue diverging would be misleading).
- *   - Default scale: 1.0 Å arrow length per Å of displacement (1:1).
- *   - Input: DisplacementPair[] (from matchByNN) + per-pair primary atom
- *     position (where the arrow tail anchors).
- *
- * Same vertexColors=false guard as fix(v0.16.3) commit 0c23a2c — material
- * stays at 0xffffff base, instanceColor multiplies cleanly.
+ * Cone tip + cylinder shaft InstancedMesh, per-instance Quaternion
+ * orientation, Viridis-only colormap (displacement magnitude has no sign).
+ * Default 1:1 scale (Å arrow length per Å of displacement). Material base
+ * stays at 0xffffff with vertexColors=false so instanceColor multiplies
+ * cleanly — enabling vertexColors would zero the diffuse.
  */
 
 const ZERO_THRESHOLD = 0.05;             // Å — arrows below this magnitude are skipped (visual noise floor)
@@ -53,8 +47,8 @@ export class DisplacementArrowRenderer {
   constructor() {
     this.shaftGeo = new THREE.CylinderGeometry(SHAFT_RADIUS, SHAFT_RADIUS, 1, 12, 1, false);
     this.tipGeo = new THREE.ConeGeometry(TIP_RADIUS, TIP_LENGTH, 16);
-    // Base white so instanceColor multiplies cleanly. NO vertexColors:true
-    // (see fix(v0.16.3) commit 0c23a2c — that flag would zero the diffuse).
+    // Base white so instanceColor multiplies cleanly. Do NOT enable
+    // vertexColors — that flag would zero the diffuse term.
     this.shaftMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 30 });
     this.tipMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 30 });
   }

@@ -4,7 +4,7 @@ description: >
   Render crystal structure files (CIF, POSCAR, XSF, XYZ, PDB, Gaussian Cube, CHGCAR,
   Quantum ESPRESSO output, FHI-aims geometry.in) to PNG images via a headless CLI.
   Supports ball-and-stick, space-filling, stick, and wireframe styles; orthographic
-  or perspective camera; axis-aligned views (a/b/c/a*/b*/c*/std); supercell expansion;
+  or perspective camera; axis-aligned views (a/b/c/a*/b*/c*/std), arbitrary (hkl) plane-normal views, or [uvw] direct-lattice direction views; supercell expansion;
   boundary atoms; bond detection; coordination polyhedra; element labels; isosurface
   (volumetric data); lattice planes; dark/light palettes.
   Trigger on: "구조 시각화해줘", "이 POSCAR/CIF 그려줘", "원자 구조 이미지로 뽑아줘",
@@ -54,7 +54,7 @@ before reporting completion. Silent success is not success.
 | `--height` | pixels | 1080 | Image height |
 | `--style` | `ball-and-stick`\|`space-filling`\|`stick`\|`wireframe` | `ball-and-stick` | Rendering mode |
 | `--camera` | `ortho`\|`persp` | `ortho` | Projection |
-| `--view` | `a`\|`b`\|`c`\|`a*`\|`b*`\|`c*`\|`std` | `std` | Camera direction |
+| `--view` | `a`\|`b`\|`c`\|`a*`\|`b*`\|`c*`\|`std`\|`h,k,l`\|`[u,v,w]` | `std` | Camera direction. `h,k,l` = (hkl) plane normal (reciprocal), e.g. `--view 1,1,0` for the (110) view. `[u,v,w]` = direct-lattice direction, e.g. `--view '[1,1,0]'` to look along `a+b` (quote the brackets in shell) |
 | `--rotate` | `x,y,z` (deg) | `0,0,0` | Extra rotation applied after view |
 | `--supercell` | `na,nb,nc` | `1,1,1` | Repeat unit cell |
 | `--palette` | `dark`\|`light` | `dark` | Color palette (dark = brightened CPK) |

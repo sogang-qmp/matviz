@@ -5,10 +5,10 @@ import { parseStructureFile, parseStructureFileTraj } from '../src/parsers/index
 import { ELEMENTS, DEFAULT_ELEMENT } from '../src/shared/elements-data';
 import { initSpglibSync } from '../src/shared/spglibWasm';
 
-// v0.20 — initialize spglib WASM at CLI startup so parseStructureFile()'s
-// post-pass can detect symmetry. Same artifact the extension host uses
-// (copied to dist/moyo_wasm_bg.wasm by esbuild). Failure is non-fatal: the
-// parser falls back to the legacy 'P1' behavior.
+// Initialize spglib WASM at CLI startup so parseStructureFile()'s post-pass
+// can detect symmetry. Same artifact the extension host uses (copied to
+// dist/moyo_wasm_bg.wasm by esbuild). Failure is non-fatal — parser falls
+// back to 'P1'.
 try {
   const wasmPath = path.join(__dirname, 'moyo_wasm_bg.wasm');
   initSpglibSync(fs.readFileSync(wasmPath));
@@ -33,9 +33,7 @@ const CLI_DEFAULT_EL = {
   dr: DEFAULT_ELEMENT.displayRadius,
 };
 
-// ---------------------------------------------------------------------------
-// CLI argument parsing
-// ---------------------------------------------------------------------------
+// --- CLI argument parsing ---
 
 interface RenderOptions {
   input: string;
@@ -58,26 +56,25 @@ interface RenderOptions {
   iso: number | null;
   plane: [number, number, number] | null;
   test: boolean;
-  // Per-atom vector overlay (generalized v0.18 — was magmom-only).
+  // Per-atom vector overlay.
   vectors: boolean;
   vectorColormap: 'redblue' | 'viridis';
   vectorScale: number;
-  // 16.2 partial occupancy
+  // Partial occupancy
   partialOccupancy: boolean;
-  // 16.1 thermal ellipsoids
+  // Thermal ellipsoids
   ellipsoids: boolean;
   ellipsoidContour: 0.5 | 0.9;
-  // 16.4 Wulff
+  // Wulff
   wulff: Array<{ h: number; k: number; l: number; gamma: number }> | null;
-  // v0.17.3 trajectory CLI
+  // Trajectory CLI
   frame: number;
   allFrames: boolean;
-  // v0.17.4 multi-phase overlay + comparison CLI
+  // Multi-phase overlay + comparison CLI
   phases: string[];
   compareToPhase: boolean;
-  // v0.20 — info-only mode (no PNG required when set; if -o is also given,
-  // both PNG and stdout summary are produced). `infoJson` switches the
-  // text format to JSON for downstream tooling.
+  // Info-only mode: when set, no PNG required (both produced if -o is also
+  // given). `infoJson` switches the text format to JSON.
   info: boolean;
   infoJson: boolean;
 }
@@ -202,8 +199,8 @@ function parseArgs(argv: string[]): RenderOptions {
   }
 
   if (positional.length > 0) opts.input = positional[0];
-  // v0.20: in --info-only mode (no -o was passed), skip the PNG-output
-  // auto-default so render() can early-return after printing.
+  // In --info-only mode (no -o was passed), skip the PNG-output auto-default
+  // so render() can early-return after printing.
   if (!opts.output && opts.input && !opts.info) {
     opts.output = opts.input.replace(/\.[^.]+$/, '.png');
   }
@@ -224,7 +221,10 @@ Options:
   --height <n>           Image height in pixels (default: 1080)
   --style <s>            ball-and-stick|space-filling|stick|wireframe (default: ball-and-stick)
   --camera <c>           ortho|persp (default: ortho)
-  --view <v>             a|b|c|a*|b*|c*|std (default: std)
+  --view <v>             a|b|c|a*|b*|c*|std|h,k,l|[u,v,w] (default: std)
+                         h,k,l   = (hkl) plane normal (reciprocal), e.g. 1,1,0
+                         [u,v,w] = direct-lattice direction, e.g. [1,1,0] = a+b
+                         (quote brackets in shell: --view '[1,1,0]')
   --rotate <x,y,z>       Additional rotation in degrees (default: 0,0,0)
   --supercell <a,b,c>    Supercell expansion (default: 1,1,1)
   --palette <p>          dark|light (default: dark)
@@ -286,9 +286,7 @@ Options:
   -h, --help             Show this help`);
 }
 
-// ---------------------------------------------------------------------------
-// Generate the HTML that runs Three.js in Chromium
-// ---------------------------------------------------------------------------
+// --- Generate the HTML that runs Three.js in Chromium ---
 
 function generateTestHTML(opts: RenderOptions): string {
   return `<!DOCTYPE html>
@@ -346,11 +344,11 @@ renderer.setSize(W, H, false);
 renderer.setPixelRatio(1);
 
 const structure = ${structureJSON};
-// v0.17.4.1 secondary phases (already-parsed, [] when no --phase given).
+// Secondary phases (already-parsed, [] when no --phase given).
 const phases = ${phasesJSON};
-// v0.17.4.2 comparison toggle — when true, compute NN displacement
-// from primary to phases[0] and render arrows + emit window.__comparisonStats
-// for Node-side stdout summary.
+// Comparison toggle — when true, compute NN displacement from primary to
+// phases[0] and render arrows + emit window.__comparisonStats for Node-side
+// stdout summary.
 const compareToPhase = ${compareToPhase ? 'true' : 'false'};
 const volumetric = ${volumetricJSON || 'null'};
 const OPTS = ${JSON.stringify({
@@ -436,20 +434,19 @@ const dl2 = new THREE.DirectionalLight(0xffffff, 0.3); dl2.position.set(-5, -5, 
 const lat = structure.lattice;
 const [na, nb, nc] = OPTS.supercell;
 const species = [], positions = [];
-// Per-atom vector overlay (generalized v0.18). Track per-expanded-atom vector
+// Per-atom vector overlay. Track per-expanded-atom vector
 // parallel to species/positions so the arrow renderer below can iterate
 // uniformly. null when structure has no atomVectors or --vectors is off.
 const haveVectors = OPTS.vectors && structure.atomVectors && Array.isArray(structure.atomVectors.values);
 const expandedVectors = haveVectors ? [] : null;
-// 16.2 partial occupancy: same parallel-array trick. Tracking the per-atom
-// occupancy lets the partial render block below pick exact opacity per site
-// (preserving Mg/Fe 0.7/0.3 mixed-site visualization) and lets the regular
-// atom path skip those indices to avoid drawing them twice.
+// Partial occupancy: parallel array of per-atom occupancy lets the partial
+// render block pick exact per-site opacity, while the regular atom path
+// skips those indices to avoid double-drawing.
 const havePartialOcc = OPTS.partialOccupancy && Array.isArray(structure.occupancy);
 const expandedOccupancy = havePartialOcc ? [] : null;
-// 16.1 thermal ellipsoids: track per-atom Uᵢⱼ tensor (or null) so the
-// ellipsoid block below can iterate without re-mapping expanded → unit-cell
-// index. Atoms with non-null U get peeled off the regular sphere path.
+// Thermal ellipsoids: parallel per-atom Uᵢⱼ (or null) so the ellipsoid block
+// can iterate without re-mapping expanded → unit-cell index. Atoms with
+// non-null U are peeled off the regular sphere path.
 const haveAniso = OPTS.ellipsoids && Array.isArray(structure.thermalAniso);
 const expandedAniso = haveAniso ? [] : null;
 
@@ -468,7 +465,7 @@ for (let ia = 0; ia < na; ia++) {
           structure.positions[j][1]+off[1],
           structure.positions[j][2]+off[2],
         ]);
-        if (expandedVectors) expandedVectors.push(structure.atomVectors!.values[j]);
+        if (expandedVectors) expandedVectors.push(structure.atomVectors.values[j]);
         if (expandedOccupancy) expandedOccupancy.push(structure.occupancy[j] != null ? structure.occupancy[j] : 1.0);
         if (expandedAniso) expandedAniso.push(structure.thermalAniso[j] || null);
       }
@@ -503,9 +500,12 @@ if (OPTS.boundary && structure.lattice) {
       combos.push(combo);
     }
     for (const combo of combos) {
-      for (let ia = 0; ia < na; ia++) {
-        for (let ib = 0; ib < nb; ib++) {
-          for (let ic = 0; ic < nc; ic++) {
+      const iaMax = combo[0] ? 1 : na;
+      const ibMax = combo[1] ? 1 : nb;
+      const icMax = combo[2] ? 1 : nc;
+      for (let ia = 0; ia < iaMax; ia++) {
+        for (let ib = 0; ib < ibMax; ib++) {
+          for (let ic = 0; ic < icMax; ic++) {
             const sf = [wf[0]+ia+combo[0]*na, wf[1]+ib+combo[1]*nb, wf[2]+ic+combo[2]*nc];
             const cp = [
               sf[0]*lat[0][0]+sf[1]*lat[1][0]+sf[2]*lat[2][0],
@@ -514,7 +514,7 @@ if (OPTS.boundary && structure.lattice) {
             ];
             species.push(structure.species[j]);
             positions.push(cp);
-            if (expandedVectors) expandedVectors.push(structure.atomVectors!.values[j]);
+            if (expandedVectors) expandedVectors.push(structure.atomVectors.values[j]);
             if (expandedOccupancy) expandedOccupancy.push(structure.occupancy[j] != null ? structure.occupancy[j] : 1.0);
             if (expandedAniso) expandedAniso.push(structure.thermalAniso[j] || null);
           }
@@ -584,6 +584,37 @@ if (OPTS.view === 'std') {
   camera.up.set(lat[2][0], lat[2][1], lat[2][2]).normalize();
 } else if (viewDirs[OPTS.view]) {
   setView(viewDirs[OPTS.view]);
+} else if (OPTS.view.indexOf(',') !== -1) {
+  // Miller-index view: --view h,k,l = (hkl) plane normal (reciprocal).
+  // --view [u,v,w] = direct-lattice direction (real space), e.g. [1,1,0]
+  // for "view along a+b". Matches crystallographic convention. c-axis up
+  // when the chosen direction is mostly in-plane (typical side-view).
+  // (Regex literals are unsafe here: this code lives inside a back-tick
+  // template string in scripts/render.ts and template-literal escape
+  // processing silently strips backslashes from \d / \[ / etc. Stick to
+  // plain string ops.)
+  const isDirect = OPTS.view.charAt(0) === '[' && OPTS.view.charAt(OPTS.view.length-1) === ']';
+  const inner = isDirect ? OPTS.view.slice(1, -1) : OPTS.view;
+  const parts = inner.split(',');
+  const [u, v, w] = parts.length === 3 ? parts.map(Number) : [NaN, NaN, NaN];
+  const dir = isDirect
+    ? normalize([
+        u*lat[0][0] + v*lat[1][0] + w*lat[2][0],
+        u*lat[0][1] + v*lat[1][1] + w*lat[2][1],
+        u*lat[0][2] + v*lat[1][2] + w*lat[2][2],
+      ])
+    : normalize([
+        u*recipA[0] + v*recipB[0] + w*recipC[0],
+        u*recipA[1] + v*recipB[1] + w*recipC[1],
+        u*recipA[2] + v*recipB[2] + w*recipC[2],
+      ]);
+  const cHat = normalize(lat[2]);
+  const cComponent = Math.abs(dir[0]*cHat[0] + dir[1]*cHat[1] + dir[2]*cHat[2]);
+  const d = frustum * 2;
+  camera.position.set(center[0]+dir[0]*d, center[1]+dir[1]*d, center[2]+dir[2]*d);
+  camera.lookAt(center[0], center[1], center[2]);
+  if (cComponent < 0.9) camera.up.set(cHat[0], cHat[1], cHat[2]);
+  else camera.up.set(0, 1, 0);
 } else {
   setView([0, 0, 1]);
 }
@@ -942,8 +973,8 @@ if (expandedVectors) {
     }
     const shaftGeo = new THREE.CylinderGeometry(SHAFT_RADIUS, SHAFT_RADIUS, 1, 12, 1, false);
     const tipGeo = new THREE.ConeGeometry(TIP_RADIUS, TIP_LENGTH, 16);
-    // base = white so instanceColor multiplies through (no vertexColors:true —
-    // see fix(v0.16.3) commit 0c23a2c for why that flag would zero the diffuse)
+    // base = white so instanceColor multiplies through. Do NOT enable
+    // vertexColors — that flag would zero the diffuse term.
     const shaftMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 30 });
     const tipMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 30 });
     const shaftMesh = new THREE.InstancedMesh(shaftGeo, shaftMat, live.length);
@@ -991,7 +1022,7 @@ if (expandedVectors) {
   }
 }
 
-// --- 17.4.1 Multi-phase overlay (matches src/webview/renderer.ts rebuildSecondaryPhases) ---
+// --- Multi-phase overlay (matches src/webview/renderer.ts rebuildSecondaryPhases) ---
 // Each --phase file is rendered as transparent Phong atoms with default
 // offset (0,0,0) and opacity 0.5. depthWrite:false + renderOrder:1 so the
 // blend reads correctly over opaque primary atoms. No bonds / boundary for
@@ -1036,7 +1067,7 @@ if (phases.length > 0) {
   }
 }
 
-// --- 17.4.2 Comparison: NN displacement arrows + RMSD stats ---
+// --- Comparison: NN displacement arrows + RMSD stats ---
 // Mirrors src/webview/{nnMatching,displacementArrowRenderer,renderer}.ts.
 // PBC-aware when primary/secondary lattices match element-wise. Stats are
 // stashed on window.__comparisonStats for Node-side stdout extraction.
@@ -1501,9 +1532,7 @@ window.__renderDone = true;
 </script></body></html>`;
 }
 
-// ---------------------------------------------------------------------------
-// v0.20 — structure info printer (text + JSON)
-// ---------------------------------------------------------------------------
+// --- Structure info printer (text + JSON) ---
 
 function printStructureInfo(opts: RenderOptions) {
   const content = fs.readFileSync(opts.input, 'utf8');
@@ -1568,24 +1597,22 @@ function printStructureInfo(opts: RenderOptions) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Main render function
-// ---------------------------------------------------------------------------
+// --- Main render function ---
 
 async function render(opts: RenderOptions) {
-  // 17.4.2 pre-flight: --compare-to-phase requires --phase, and is incompatible
-  // with --all-frames in v0.17.4 (per-frame comparison deferred).
+  // Pre-flight: --compare-to-phase requires --phase and is incompatible with
+  // --all-frames (per-frame comparison deferred).
   if (opts.compareToPhase && opts.phases.length === 0) {
     console.error('Error: --compare-to-phase requires at least one --phase <file>');
     process.exit(1);
   }
   if (opts.compareToPhase && opts.allFrames) {
-    console.error('Error: --compare-to-phase + --all-frames not supported in v0.17.4');
+    console.error('Error: --compare-to-phase + --all-frames not supported');
     process.exit(1);
   }
 
-  // v0.20 --info: print structure summary to stdout. If --info alone (no -o),
-  // exit without spinning up Puppeteer (fast path for report pipelines).
+  // --info: print structure summary to stdout. If --info alone (no -o), exit
+  // without spinning up Puppeteer (fast path for report pipelines).
   if (opts.info) {
     printStructureInfo(opts);
     if (!opts.output) return;
@@ -1634,7 +1661,7 @@ async function render(opts: RenderOptions) {
         const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
         fs.writeFileSync(outputPath, Buffer.from(base64, 'base64'));
         console.log(`Saved: ${outputPath}`);
-        // 17.4.2: extract comparison stats stashed on window by inline HTML.
+        // Extract comparison stats stashed on window by inline HTML.
         if (opts.compareToPhase) {
           const stats = await page.evaluate(() => (window as any).__comparisonStats);
           if (stats) {
@@ -1666,7 +1693,7 @@ async function render(opts: RenderOptions) {
 
       const content = fs.readFileSync(opts.input, 'utf-8');
       const filename = path.basename(opts.input);
-      // v0.17.3.1: trajectory-aware dispatch.
+      // Trajectory-aware dispatch.
       const trajResult = parseStructureFileTraj(content, filename);
       const traj = trajResult.trajectory;
       const volumetricJSON = trajResult.volumetric ? JSON.stringify({
@@ -1676,8 +1703,8 @@ async function render(opts: RenderOptions) {
         data: Array.from(trajResult.volumetric.data),
       }) : null;
 
-      // 17.4.1 multi-phase overlay: load + parse each --phase file (single-
-      // frame extracted via parseStructureFile). Pass as JSON to inline HTML.
+      // Multi-phase overlay: load + parse each --phase file (single-frame
+      // extracted via parseStructureFile). Pass as JSON to inline HTML.
       const phasesData = opts.phases.map(phasePath => {
         const phaseContent = fs.readFileSync(phasePath, 'utf-8');
         const phaseFilename = path.basename(phasePath);
@@ -1690,7 +1717,7 @@ async function render(opts: RenderOptions) {
       });
       const phasesJSON = JSON.stringify(phasesData);
 
-      // 17.3.2 --all-frames: render every frame as PNG sequence.
+      // --all-frames: render every frame as PNG sequence.
       if (opts.allFrames) {
         if (opts.frame !== 0) {
           console.warn(`--frame ${opts.frame} ignored: --all-frames takes precedence`);
@@ -1714,7 +1741,7 @@ async function render(opts: RenderOptions) {
         }
         if (!allOk) process.exitCode = 1;
       } else {
-        // Single-frame extraction (existing 17.3.1 path).
+        // Single-frame extraction.
         let frameIdx = opts.frame;
         if (traj.frames.length > 1) {
           if (frameIdx < 0 || frameIdx >= traj.frames.length) {
@@ -1734,9 +1761,7 @@ async function render(opts: RenderOptions) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
+// --- Entry point ---
 
 const opts = parseArgs(process.argv);
 render(opts).catch(err => {

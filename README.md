@@ -387,7 +387,7 @@ Common options:
 | `-o <path>` | Output PNG path |
 | `--width N` / `--height N` | Image size (default 1920×1080) |
 | `--style <ball-and-stick\|space-filling\|stick\|wireframe>` | Rendering style |
-| `--view <a\|b\|c\|a*\|b*\|c*\|std>` | Predefined camera view |
+| `--view <a\|b\|c\|a*\|b*\|c*\|std\|h,k,l\|[u,v,w]>` | Predefined camera view, or `h,k,l` for the (hkl) plane normal (e.g. `1,1,0` = (110) view), or `[u,v,w]` for a direct-lattice direction (e.g. `'[1,1,0]'` = view along `a+b`; quote brackets in shell) |
 | `--rotate x,y,z` | Additional rotation in degrees |
 | `--supercell a,b,c` | Expand cell (e.g. `2,2,1`) |
 | `--camera <ortho\|persp>` | Projection |

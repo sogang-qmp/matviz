@@ -1,20 +1,11 @@
 /**
- * v0.17.1 (17.3.0) — Nearest-neighbor atom matching for comparison mode.
+ * Nearest-neighbor atom matching for comparison mode.
  *
- * Given two structures (primary and secondary), find which secondary atom
- * each primary atom corresponds to, restricted to same-species pairs and
- * a distance threshold. Greedy NN with spatial-bin acceleration for large
- * N. Output is a list of (a, b, displacement) triples plus the indices of
- * primary atoms that found no acceptable match.
- *
- * Algorithm choice:
- * - Greedy NN (not Hungarian/optimal-assignment) — handles 90%+ workflow
- *   (relaxed/unrelaxed pairs, before/after MD frames). Optimal assignment
- *   is O(N³) and over-engineered for visualization.
- * - Spatial bin O(N) for N>100; naive O(N²) for small N (avoids bin
- *   overhead).
- * - usedSecondary set ensures one-to-one matching (no two primary atoms
- *   pull the same secondary).
+ * Given two structures, find which secondary atom each primary atom
+ * corresponds to, restricted to same-species pairs and a distance
+ * threshold. Greedy NN (not Hungarian) — adequate for visualization;
+ * usedSecondary set guarantees one-to-one. Spatial bin for N > 100,
+ * naive O(N²) below to avoid bin overhead.
  */
 
 export interface DisplacementPair {
@@ -32,14 +23,12 @@ const SPATIAL_BIN_THRESHOLD = 100;        // use bin for N above this
 const DEFAULT_DISTANCE_THRESHOLD = 2.0;   // Å
 
 /**
- * v0.17.2.2 — `lattice` parameter activates periodic-boundary handling. When
- * provided (and non-degenerate), each candidate displacement is reduced via
- * the minimum-image convention: d_frac = inv(lattice) · d,
- * d_frac → d_frac − round(d_frac), d = lattice · d_frac. This collapses
- * cell-wrapping displacements (e.g. atom at frac 0.99 vs frac 0.01 → ~0
- * after wrap, not ~a). Spatial bin is bypassed when lattice is provided —
- * binning with PBC needs neighbor-bin wraparound that doubles complexity;
- * NN cap (renderer 5k auto-disable) keeps O(N²) tractable.
+ * `lattice` activates periodic-boundary handling. Each candidate
+ * displacement is reduced via minimum-image convention so cell-wrapping
+ * pairs (frac 0.99 vs frac 0.01) collapse to ~0 instead of ~a. Spatial
+ * bin is bypassed when lattice is provided — binning with PBC needs
+ * neighbor-bin wraparound; the renderer's 5k auto-disable keeps O(N²)
+ * tractable.
  */
 export function matchByNN(
   primarySpecies: string[],

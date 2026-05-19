@@ -1,11 +1,5 @@
 /**
- * One-shot verification for v0.16.1 (1/3) — CIF aniso parser + multi-loop
- * refactor + degenerate-cell NaN guards.
- *
- * Asserts that test/fixtures/test-aniso.cif yields the expected
- * thermalAniso array and that nacl.cif (no aniso) leaves thermalAniso
- * undefined. Also checks that a synthetic degenerate cell throws.
- *
+ * Verification: CIF aniso parser + multi-loop scan + degenerate-cell guards.
  * Run via: node dist/test-aniso.js
  */
 
@@ -20,12 +14,12 @@ function approx(a: number, b: number, tol = 1e-6): boolean {
 }
 
 function fail(msg: string): never {
-  console.error(`✗ FAIL: ${msg}`);
+  console.error(`FAIL: ${msg}`);
   process.exit(1);
 }
 
 function pass(msg: string): void {
-  console.log(`✓ ${msg}`);
+  console.log(`PASS: ${msg}`);
 }
 
 // ---- Test 1: aniso CIF round-trip ----
@@ -111,7 +105,7 @@ A 0 0 0
   pass(`tio2-rutile.cif: ${s.species.length} atoms after symmetry expansion (regression-free)`);
 }
 
-// ---- Test 5: partial occupancy parsing (v0.16.2) ----
+// ---- Test 5: partial occupancy parsing ----
 {
   const cifPath = path.join(ROOT, 'test/fixtures/test-occupancy.cif');
   const content = fs.readFileSync(cifPath, 'utf8');
@@ -136,4 +130,4 @@ A 0 0 0
   pass(`nacl.cif: occupancy field omitted (no _atom_site_occupancy column)`);
 }
 
-console.log('\nAll v0.16.1+16.2 parser tests passed.');
+console.log('\nAll parser tests passed.');

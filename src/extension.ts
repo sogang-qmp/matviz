@@ -5,11 +5,10 @@ import { CrystalEditorProvider } from './editor/crystalEditorProvider';
 import { initSpglibSync } from './shared/spglibWasm';
 
 export function activate(context: vscode.ExtensionContext) {
-  // v0.20 — initialize spglib WASM synchronously at activation. Bytes are
-  // bundled inside the .vsix at dist/moyo_wasm_bg.wasm. Failure here is
-  // non-fatal: the parser post-pass falls back to the legacy 'P1' behavior
-  // when `isSpglibReady()` returns false, so a missing/corrupt WASM file
-  // doesn't break structure loading.
+  // Initialize spglib WASM synchronously at activation. Bytes are bundled
+  // inside the .vsix at dist/moyo_wasm_bg.wasm. Failure here is non-fatal:
+  // the parser post-pass falls back to 'P1' when `isSpglibReady()` is false,
+  // so a missing/corrupt WASM file doesn't break structure loading.
   try {
     const wasmPath = path.join(context.extensionPath, 'dist', 'moyo_wasm_bg.wasm');
     initSpglibSync(fs.readFileSync(wasmPath));
@@ -38,10 +37,9 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // v0.20 (19.1) — split-pane companion: open the text editor for the
-  // currently-active matviz tab in a beside column. Edits in the text
-  // pane reflow the 3D view via the change-event subscription in
-  // CrystalEditorProvider.
+  // Split-pane companion: open the text editor for the currently-active
+  // matviz tab in a beside column. Edits in the text pane reflow the 3D view
+  // via the change-event subscription in CrystalEditorProvider.
   context.subscriptions.push(
     vscode.commands.registerCommand('matviz.openWithText', async (uri?: vscode.Uri) => {
       const target = uri ?? vscode.window.activeTextEditor?.document.uri;
@@ -135,7 +133,7 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // 16.4 Wulff construction
+  // Wulff construction
   context.subscriptions.push(
     vscode.commands.registerCommand('matviz.showWulff', async () => {
       const input = await vscode.window.showInputBox({
@@ -165,7 +163,7 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // 17.2 multi-phase overlay
+  // Multi-phase overlay
   context.subscriptions.push(
     vscode.commands.registerCommand('matviz.addPhase', async () => {
       const picks = await vscode.window.showOpenDialog({
@@ -184,9 +182,8 @@ export function activate(context: vscode.ExtensionContext) {
         // Lazy import to avoid circular module load order with parsers
         const { parseStructureFile } = await import('./parsers/index.js');
         const parsed = parseStructureFile(content, filename);
-        // Default offset 0 (overlap), opacity 0.5. User can re-invoke
-        // with different offsets via subsequent add — first cut keeps
-        // input simple; offset/opacity slider is a v0.17.x side-panel UI.
+        // Default offset 0 (overlap), opacity 0.5. Side-panel offers
+        // per-phase opacity/visibility controls.
         provider.postMessageToActive({
           type: 'addPhase',
           data: parsed.structure,
@@ -205,7 +202,7 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // v0.17.1 (17.3) comparison mode
+  // Comparison mode
   context.subscriptions.push(
     vscode.commands.registerCommand('matviz.compareToPhase', () => {
       provider.postMessageToActive({ type: 'compareToPhase' });

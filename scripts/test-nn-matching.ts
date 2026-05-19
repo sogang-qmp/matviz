@@ -1,21 +1,13 @@
 /**
- * Verification for v0.17.1 (17.3.0) — NN atom matching.
- *
- * Asserts:
- *   1. Identity: same atoms in same order → all i↔i, displacement [0,0,0]
- *   2. Uniform drift: secondary = primary + (0.5, 0, 0) → all i↔i, disp = [0.5,0,0]
- *   3. Swap: two same-species atoms swapped → matching by position is correct
- *   4. Large-N spatial bin: 200 random atoms, secondary is shuffled primary →
- *      all displacement [0,0,0] within tol (correctness of bin path)
- *
+ * Verification: NN atom matching.
  * Run via: node dist/test-nn-matching.js
  */
 
 import { matchByNN } from '../src/webview/nnMatching';
 
 function approx(a: number, b: number, tol = 1e-6): boolean { return Math.abs(a - b) < tol; }
-function fail(msg: string): never { console.error(`✗ FAIL: ${msg}`); process.exit(1); }
-function pass(msg: string): void { console.log(`✓ ${msg}`); }
+function fail(msg: string): never { console.error(`FAIL: ${msg}`); process.exit(1); }
+function pass(msg: string): void { console.log(`PASS: ${msg}`); }
 
 // ---- Test 1: Identity ----
 {
@@ -103,7 +95,7 @@ function pass(msg: string): void { console.log(`✓ ${msg}`); }
   pass(`Large-N spatial bin: ${N} random atoms, secondary = shuffled primary, all displacements = 0`);
 }
 
-// ---- Test 5: PBC-aware (17.2.2) — atom wraps across cell boundary ----
+// ---- Test 5: PBC-aware — atom wraps across cell boundary ----
 {
   // 4Å cubic cell. Primary Na near +x face (frac 0.99 → cart 3.96).
   // Secondary Na slightly past the boundary (frac 0.01 in next cell →
@@ -134,4 +126,4 @@ function pass(msg: string): void { console.log(`✓ ${msg}`); }
   pass(`PBC: cell-wrap atom match — without lattice unmatched (raw 3.92Å), with lattice matched (min-image 0.08Å)`);
 }
 
-console.log('\nAll v0.17.1.0 + 17.2.2 NN-matching tests passed.');
+console.log('\nAll NN-matching tests passed.');

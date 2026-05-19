@@ -1,26 +1,13 @@
 import { CrystalStructure, CrystalTrajectory } from './types';
 
 /**
- * v0.17.1.2 — VASP XDATCAR parser (MD trajectory).
- *
- * Two flavors share the same file format:
- *   NVE (fixed-cell):  one header (title, scale, 3 lattice vectors, species,
- *                      counts), then repeated `Direct configuration=N` blocks.
- *   NPT (variable-cell): the entire header is repeated before each
- *                      `Direct configuration=` block (VASP convention).
- *
- * Detection: after each Direct config block ends, peek for a line that is
- * a single positive scale number followed by 3 lattice-vector lines. If
- * found, treat as NPT (latticeMode='per-frame'). Otherwise the next
- * `Direct configuration=` continues using the prior lattice.
- *
- * Output:
- *   - latticeMode='fixed' for NVE — every frame shares the lattice REFERENCE.
- *   - latticeMode='per-frame' for NPT — each frame holds its own lattice.
- *
- * Single-frame entry (parseXdatcar) returns the first configuration's
- * CrystalStructure — used by code paths that don't need the full trajectory
- * (CLI renderer, regression test scripts).
+ * VASP XDATCAR parser. Two flavors:
+ *   NVE (fixed-cell):  one header, then repeated `Direct configuration=N`
+ *                      blocks.
+ *   NPT (variable-cell): the entire header is repeated before each block.
+ * NPT detection: after a Direct config block ends, peek for a single scale
+ * number followed by 3 lattice-vector lines. NVE frames share the lattice
+ * reference (renderer optimization).
  */
 
 interface Header {

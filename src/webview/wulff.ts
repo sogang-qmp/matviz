@@ -2,24 +2,18 @@ import * as THREE from 'three';
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 
 /**
- * Wulff construction (v0.16.4).
+ * Wulff construction.
  *
  * Given a set of crystal-faces (Miller indices + per-face surface energy),
  * the Wulff polytope is the intersection of half-spaces n_hkl · x ≤ γ_hkl,
  * where n_hkl is the reciprocal-lattice direction and γ_hkl the energy
- * (in arbitrary units — only ratios matter for shape).
+ * (only ratios matter for shape).
  *
  * Algorithm: enumerate all triples of planes, solve each for the
  * intersection point, and keep points that satisfy all OTHER plane
- * constraints. Those points are the polytope vertices. A bounding box
- * is added as fallback so the result is always bounded.
- *
- * Complexity O(n⁴) for n planes (C(n,3) triples × n containment checks)
- * but n is small for typical Wulff (≤ 14 with cubic system + bounding
- * box); ≤ 1500 ops total.
- *
- * Triangulation handled by Three's ConvexGeometry (QuickHull) — same
- * approach as v0.15.2 polyhedra.
+ * constraints. A bounding box is added so the result is always bounded.
+ * O(n⁴) for n planes — small in practice (≤ 14 with cubic + bbox).
+ * Triangulation via Three's ConvexGeometry (QuickHull).
  */
 
 export interface WulffPlane {

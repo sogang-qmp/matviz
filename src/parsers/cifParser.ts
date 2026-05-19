@@ -3,23 +3,16 @@ import { CrystalStructure } from './types';
 /**
  * CIF parser with symmetry expansion + anisotropic displacement support.
  *
- * Loop tracking (v0.16.1): the previous single-loop scheme dropped the atom
- * loop's data when ANY subsequent loop appeared (e.g. an `_atom_site_aniso_*`
- * loop after the atom loop). Refactored to accumulate every non-symmetry loop
- * into `parsedLoops`; the asymmetric-unit and aniso loops are then resolved by
- * column-name matching after the scan.
+ * Multiple loops are accumulated into `parsedLoops`; the atom-site and
+ * `_atom_site_aniso_*` loops are then matched by column-name after the scan.
+ * Aniso U-form (Å²) is preserved as-is; B-form is converted via U = B/(8π²).
+ * Symmetry-expanded copies inherit the parent atom's Uᵢⱼ *without* rotation
+ * by the symop — visually correct only for diagonal-dominant U or identity
+ * symmetry (limitation; rotation by R·U·Rᵀ not yet applied).
  *
- * Anisotropic displacement (16.1): `_atom_site_aniso_label` loop entries are
- * matched to atom-site rows by the shared label. U-form (Å²) is preserved
- * as-is; B-form (Å²) is converted via `U = B / (8 π²)`. Symmetry-expanded
- * copies inherit the asymmetric atom's Uᵢⱼ *without* rotation by the symop
- * (TODO 16.x: apply R · U · Rᵀ for non-identity symops). Visually accurate
- * for diagonal-dominant U; off-axis U components mis-orient on non-trivial
- * symops. Limitation documented in working log.
- *
- * Degenerate-cell guard (16.1): cellToLattice() throws if `sin(γ) < 1e-6` or
- * any cell length is below 1e-9 Å, so the editor's parse-error boundary
- * (v0.13.1) surfaces "Open as Text" instead of yielding NaN-laden positions.
+ * cellToLattice() throws on degenerate cells (sin γ < 1e-6, length < 1e-9 Å)
+ * so the editor's parse-error boundary surfaces "Open as Text" instead of
+ * yielding NaN-laden positions.
  */
 
 interface CifLoop {
@@ -70,7 +63,7 @@ export function parseCif(content: string): CrystalStructure {
 
     // Space group. Normalize to compact form (no internal whitespace)
     // so the info pill renders consistently across parsers — matches the
-    // convention used by the v0.20 spglib post-pass.
+    // convention used by the spglib post-pass.
     if (line.startsWith('_symmetry_space_group_name_H-M') || line.startsWith('_space_group_name_H-M')) {
       const parts = line.split(/\s+/);
       spaceGroup = parts.slice(1).join(' ').replace(/['"]/g, '').replace(/\s+/g, '');
@@ -324,9 +317,8 @@ export function parseCif(content: string): CrystalStructure {
     species = result.species;
     positions = result.fractional.map(f => fracToCart(lattice, f));
     if (anisoMap.size > 0) {
-      // Limitation: propagate Uᵢⱼ without rotation by the symop. Diagonal-
-      // dominant U remains visually plausible; off-axis U mis-orients for
-      // non-identity symops. Track via `_aniso_NEEDS_SYMOP_ROTATION` flag.
+      // Uᵢⱼ propagated without symop rotation — diagonal-dominant U stays
+      // plausible; off-axis components mis-orient on non-identity symops.
       thermalAniso = result.parentLabels.map(lbl => {
         const u = lbl ? anisoMap.get(lbl) : undefined;
         return u ? { ...u } : null;
@@ -340,9 +332,7 @@ export function parseCif(content: string): CrystalStructure {
       occupancy = result.parentLabels.map(lbl => occByLabel.get(lbl) ?? 1.0);
     }
     if (momentMap.size > 0) {
-      // Same limitation as thermalAniso: moment vector NOT rotated by symop.
-      // Correct only for identity symmetry or when moment is along an axis
-      // preserved by the symop. Track via TODO 16.x.
+      // Moment vector NOT rotated by symop (same caveat as thermalAniso).
       magMom = result.parentLabels.map(lbl => {
         const m = lbl ? momentMap.get(lbl) : undefined;
         return m ? [m[0], m[1], m[2]] as [number, number, number] : [0, 0, 0] as [number, number, number];
@@ -375,10 +365,6 @@ export function parseCif(content: string): CrystalStructure {
       });
     }
   }
-
-  // Length invariant guard: if some species lack aniso, the array is still
-  // populated with `null` slots (above). No length mismatch can happen here
-  // by construction.
 
   return {
     lattice,
@@ -542,7 +528,7 @@ function cellToLattice(
   a: number, b: number, c: number,
   alpha: number, beta: number, gamma: number
 ): [number, number, number][] {
-  // Degenerate-cell guard (16.1): caught by editor parse-error boundary.
+  // Degenerate-cell guard: caught by editor parse-error boundary.
   if (a < 1e-9 || b < 1e-9 || c < 1e-9) {
     throw new Error(`Degenerate lattice: cell length ≤ 0 (a=${a}, b=${b}, c=${c})`);
   }

@@ -18,25 +18,18 @@ export interface ParseResult {
 
 export interface ParseTrajectoryResult {
   trajectory: CrystalTrajectory;
-  volumetric?: VolumetricData;  // first-frame volumetric only (v0.17 scope)
+  volumetric?: VolumetricData;  // first-frame volumetric only
 }
 
-/**
- * v0.20 post-parser symmetry pass. Runs spglib (`@spglib/moyo-wasm`) on
- * every parsed structure that didn't already get a `spaceGroup` from its
- * source file. CIF wins on conflict — its `_space_group_name_*` is taken
- * as authoritative even when spglib would disagree.
- *
- * No-op when spglib hasn't been initialized in the current host process
- * (`initSpglib*()` not yet called). The post-pass returns the original
- * structure unchanged in that case so the rest of the pipeline keeps
- * working — info pill simply falls back to 'P1' as in pre-v0.20.
- */
+// Cells past this size skip spglib — analyze_cell cost is non-monotone in
+// atom count (~240 ms at 216, ~7 s at 512 for diamond Fd-3m supercells).
+const SYMMETRY_MAX_ATOMS = 256;
+
 function withSymmetry(structure: CrystalStructure): CrystalStructure {
   if (!isSpglibReady()) return structure;
-  // Defer to whatever the parser already extracted (typically only CIF).
   if (structure.spaceGroup && structure.spaceGroup !== 'P1') return structure;
   if (structure.species.length === 0) return structure;
+  if (structure.species.length > SYMMETRY_MAX_ATOMS) return structure;
   const sym = detectSymmetry(structure.lattice, structure.positions, structure.species);
   if (!sym) return structure;
   return {
@@ -124,21 +117,11 @@ function parseStructureFileRaw(content: string, filename: string): ParseResult {
 
 export { CrystalStructure, CrystalTrajectory, VolumetricData } from './types';
 
-/**
- * Trajectory-aware entry point for v0.17 multi-frame formats. Format-specific
- * multi-frame parsers plug in here as they land:
- *   - 17.1.1 AXSF (multi-frame XSF) ✅
- *   - 17.1.2 XDATCAR
- *   - 17.1.3 extended XYZ
- * Other formats wrap their single-frame output into a length-1 trajectory.
- * Existing call sites that don't need multi-frame can keep using
- * parseStructureFile() — backward compatible.
- */
+// Trajectory-aware entry point. Single-frame formats wrap into a length-1
+// trajectory; symmetry is detected on frame 0 only and copied to the rest
+// to avoid per-frame jitter.
 export function parseStructureFileTraj(content: string, filename: string): ParseTrajectoryResult {
   const r = parseStructureFileTrajRaw(content, filename);
-  // Trajectory policy (locked decision A): detect symmetry on frame 0 only,
-  // copy the result to all frames. Avoids per-frame jitter during MD/relax
-  // playback where the symmetry is invariant.
   if (r.trajectory.frames.length > 0) {
     const f0 = withSymmetry(r.trajectory.frames[0]);
     r.trajectory.frames[0] = f0;
@@ -159,23 +142,16 @@ export function parseStructureFileTraj(content: string, filename: string): Parse
 function parseStructureFileTrajRaw(content: string, filename: string): ParseTrajectoryResult {
   const lower = filename.toLowerCase();
 
-  // 17.1.1 — AXSF multi-frame dispatch. parseXsfTraj also handles single-frame
-  // XSF (delegates to parseXsf + wrap), so route both extensions here.
   if (lower.endsWith('.xsf') || lower.endsWith('.axsf')) {
     return parseXsfTraj(content);
   }
-  // 17.1.2 — XDATCAR (VASP MD) is intrinsically multi-frame.
   if (lower === 'xdatcar') {
     return { trajectory: parseXdatcarTraj(content) };
   }
-  // 17.1.3 — extended XYZ (ASE format). parseXyzTraj works for both
-  // single-frame plain XYZ and multi-frame ASE trajectories.
   if (lower.endsWith('.xyz')) {
     return { trajectory: parseXyzTraj(content) };
   }
-  // 17.3.1 — content-based auto-detection for trajectory formats with
-  // non-standard filenames. CLI users often copy XDATCAR to my_md.dat or
-  // similar; AXSF can lose its extension. Marker strings are unambiguous.
+  // Content-based fallback for trajectory files with non-standard names.
   if (content.includes('Direct configuration=') || content.includes('Cartesian configuration=')) {
     return { trajectory: parseXdatcarTraj(content) };
   }
@@ -183,7 +159,7 @@ function parseStructureFileTrajRaw(content: string, filename: string): ParseTraj
     return parseXsfTraj(content);
   }
 
-  // Fallback: single-frame parser + wrap.
+  // Single-frame fallback wrapped as length-1 trajectory.
   const single = parseStructureFile(content, filename);
   return {
     trajectory: { frames: [single.structure], latticeMode: 'fixed' },

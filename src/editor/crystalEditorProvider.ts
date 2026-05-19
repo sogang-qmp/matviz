@@ -13,8 +13,8 @@ const ICON = {
   arrowDown:  SVG_OPEN + '<path d="M8 3v10"/><path d="M4 9l4 4 4-4"/></svg>',
   arrowLeft:  SVG_OPEN + '<path d="M13 8H3"/><path d="M7 4L3 8l4 4"/></svg>',
   arrowRight: SVG_OPEN + '<path d="M3 8h10"/><path d="M9 4l4 4-4 4"/></svg>',
-  rotCCW:     SVG_OPEN + '<path d="M13 8a5 5 0 1 1-1.46-3.54"/><path d="M13 3v3h-3"/></svg>',
-  rotCW:      SVG_OPEN + '<path d="M3 8a5 5 0 1 0 1.46-3.54"/><path d="M3 3v3h3"/></svg>',
+  rotCCW:     SVG_OPEN + '<path d="M3 8a5 5 0 1 0 1.46-3.54"/><path d="M3 3v3h3"/></svg>',
+  rotCW:      SVG_OPEN + '<path d="M13 8a5 5 0 1 1-1.46-3.54"/><path d="M13 3v3h-3"/></svg>',
   zoomIn:     SVG_OPEN + '<circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/><path d="M5 7h4M7 5v4"/></svg>',
   zoomOut:    SVG_OPEN + '<circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/><path d="M5 7h4"/></svg>',
   fit:        SVG_OPEN + '<path d="M2 6V2h4"/><path d="M14 6V2h-4"/><path d="M2 10v4h4"/><path d="M14 10v4h-4"/></svg>',
@@ -32,15 +32,12 @@ const ICON = {
   chevDnSmall: '<svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 1.5L5 4.5l3.5-3"/></svg>',
 };
 
-// v0.20 (was 19.1): migrated from CustomReadonlyEditorProvider<CrystalDocument>
-// to CustomTextEditorProvider. The text buffer (vscode.TextDocument) and the
-// webview now share the same document — VSCode's standard dirty state, save
-// dialog, and onDidChangeTextDocument events flow through automatically.
-// Side-by-side text editor + 3D view: edits in the text pane reflow the 3D
-// view via a debounced reparse (~250 ms after the last keystroke).
-//
-// Per-document parse cache: parseSeq + lastParse let us drop stale parse
-// results when the user types fast.
+// CustomTextEditorProvider — text buffer (vscode.TextDocument) and webview
+// share one document, so VSCode's standard dirty state, save dialog, and
+// onDidChangeTextDocument events flow through automatically. Edits in the
+// companion text pane reflow the 3D view via a debounced reparse
+// (~250 ms after the last keystroke); parseSeq drops stale parses on fast
+// typing.
 
 interface ParsedContent {
   uri: vscode.Uri;
@@ -132,12 +129,11 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
       ],
     };
 
-    // v0.20 (19.2) — read user-configurable defaults from VSCode settings.
-    // Bake them into the HTML page (`window.MATVIZ_DEFAULTS`) so the
-    // webview's renderer can pick them up BEFORE `vscode.setState`
-    // restoreState runs on return visits — settings provide initial
-    // defaults, localStorage state wins on subsequent loads of the
-    // same URI.
+    // Read user-configurable defaults from VSCode settings and bake them
+    // into the HTML page (`window.MATVIZ_DEFAULTS`) so the webview's
+    // renderer can pick them up BEFORE `vscode.setState` restoreState runs:
+    // settings provide initial defaults, localStorage state wins on return
+    // visits to the same URI.
     const cfg = vscode.workspace.getConfiguration('matviz.defaults');
     const defaults = {
       style: cfg.get<string>('style', 'ball-and-stick'),
@@ -150,9 +146,8 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
     };
     webviewPanel.webview.html = this.getHtml(webviewPanel.webview, defaults);
 
-    // Helper: post the current parsed content into the webview. Splits
-    // single-frame vs trajectory load paths the same way the v0.17.1.0
-    // dispatch did. No-op if `content` is null (initial parse failure).
+    // Post the current parsed content into the webview, splitting
+    // single-frame vs trajectory load paths. No-op if `content` is null.
     const postContentToWebview = (c: ParsedContent | null) => {
       if (!c) return;
       if (c.trajectory.frames.length > 1) {
@@ -167,7 +162,7 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
             origin: c.volumetric.origin,
             lattice: c.volumetric.lattice,
             dims: c.volumetric.dims,
-            data: Array.from(c.volumetric.data),
+            data: c.volumetric.data,
           },
         });
       }
@@ -180,12 +175,12 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
       if (msg.type === 'openAsText') {
         vscode.commands.executeCommand('vscode.openWith', document.uri, 'default');
       }
-      // 17.2.1 add-phase via side-panel button (webview-initiated; no
-      // command palette round-trip needed).
+      // Add-phase via side-panel button (webview-initiated; no command
+      // palette round-trip needed).
       if (msg.type === 'addPhaseRequest') {
         vscode.commands.executeCommand('matviz.addPhase');
       }
-      // 17.2.1 compare-to-phase failure → vscode toast (replaces console.warn)
+      // Compare-to-phase failure → vscode toast.
       if (msg.type === 'comparisonResult') {
         const r = msg as { type: 'comparisonResult'; ok: boolean; reason?: string };
         if (!r.ok && r.reason) {
@@ -194,10 +189,10 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
       }
     });
 
-    // v0.20 (19.1) — debounced reparse on text-buffer change. Drops stale
-    // results via parseSeq so rapid typing during a slow parse doesn't
-    // produce out-of-order updates. Filters to the document this editor
-    // is viewing (multiple matviz tabs each subscribe independently).
+    // Debounced reparse on text-buffer change. parseSeq drops stale results
+    // so rapid typing during a slow parse doesn't produce out-of-order
+    // updates. Filters to the document this editor is viewing (multiple
+    // matviz tabs each subscribe independently).
     let parseSeq = 0;
     let timer: NodeJS.Timeout | null = null;
     const changeSub = vscode.workspace.onDidChangeTextDocument((e) => {
@@ -209,8 +204,6 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
         const next = this.parseDocument(document);
         if (!next) {
           // Parse failure during edit — keep showing the last good state.
-          // Future polish (v0.20.x): surface a "(stale: parse error)"
-          // badge in the info pill.
           return;
         }
         if (seq !== parseSeq) return;
@@ -273,7 +266,7 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
     <button id="help-btn" class="mode-btn" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">${ICON.help}</button>
   </div>
 
-  <!-- Shortcuts help overlay (V2 — 4-column grid card) -->
+  <!-- Shortcuts help overlay -->
   <div id="help-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="help-title">
     <div id="help-card">
       <div id="help-head">
@@ -367,7 +360,7 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
     </div>
   </div>
 
-  <!-- Left sidebar controls (V2 floating glass; offset/overlay toggle removed — overlay-only) -->
+  <!-- Left sidebar controls -->
   <div id="side-panel">
     <div id="panel-resize"></div>
     <div class="panel-scroll">
@@ -520,17 +513,15 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
     </div><!-- /.panel-scroll -->
   </div>
 
-  <!-- Bottom-left info pill (V2 canonical formula readout — always visible).
-       When an atom is clicked the picked-atom info appears as an additional
-       segment after the meta, so the pill becomes the single integrated
-       readout for both structure-level and atom-level info. -->
+  <!-- Bottom-left info pill — always visible. Picked-atom info appends as
+       an extra segment after the meta when an atom is clicked. -->
   <div id="info-pill" class="hidden">
     <span id="pill-formula"></span>
     <span id="pill-meta"></span>
     <span id="pill-selected" class="hidden"></span>
   </div>
 
-  <!-- Measure HUD (V2 — top-right; visible only in measure mode) -->
+  <!-- Measure HUD (top-right; visible only in measure mode) -->
   <div id="measure-hud" class="hidden" role="region" aria-label="Measurement readout">
     <div class="measure-head">
       <div class="measure-kinds" role="tablist">

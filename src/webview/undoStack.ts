@@ -1,16 +1,8 @@
 /**
- * v0.20 (19.3) — property-panel undo/redo stack.
- *
- * Generic single-stack design (undo + redo capped at `cap` total entries).
- * Scope: side-panel property edits only — element color/radius/visibility,
- * per-pair bond min/max/enable. Camera, selection, supercell, display style
- * are intentionally excluded so Ctrl+Z behaves predictably ("undo my last
- * panel edit" rather than "undo any session change").
- *
- * Each `record(undo, redo)` call:
- *   - pushes a new entry onto the undo stack
- *   - clears the redo stack (linear history — no branching)
- *   - drops the oldest entry if cap exceeded.
+ * Property-panel undo/redo stack. Scope is intentionally limited to side-panel
+ * property edits (element color/radius/visibility, per-pair bond min/max/enable);
+ * camera, selection, supercell, display style are excluded so Ctrl+Z stays
+ * predictable. Linear history — recording clears the redo stack.
  */
 
 export interface UndoEntry {

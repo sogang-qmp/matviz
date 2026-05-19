@@ -150,22 +150,11 @@ export function parseXsf(content: string): CrystalStructure & { volumetric?: Vol
 }
 
 /**
- * v0.17.1.1 — AXSF multi-frame XSF parser.
- *
- * AXSF extends XSF with `ANIMSTEPS N` header and one PRIMCOORD block per
- * frame. The lattice can either be specified once (`PRIMVEC` before all
- * frames, fixed-cell) or per-frame (`PRIMVEC 1`, `PRIMVEC 2`, … numbered
- * blocks, variable-cell).
- *
- * Behavior:
- * - No ANIMSTEPS marker → single-frame trajectory (length 1, latticeMode='fixed').
- * - ANIMSTEPS present, single PRIMVEC → fixed-cell, every frame shares the
- *   same lattice REFERENCE so renderer's cell wireframe doesn't rebuild
- *   per frame.
- * - ANIMSTEPS present, multiple `PRIMVEC k` → variable-cell ('per-frame').
- *
- * Volumetric data on multi-frame AXSF is rare; if present, attached only
- * to frame 0 (CLI/webview consume from frames[0] currently).
+ * AXSF multi-frame parser. AXSF extends XSF with `ANIMSTEPS N` plus one
+ * PRIMCOORD block per frame; lattice is either specified once (fixed-cell)
+ * or as numbered `PRIMVEC k` blocks (per-frame). Fixed-cell frames share
+ * the same lattice reference so the renderer's cell wireframe doesn't
+ * rebuild per frame.
  */
 export function parseXsfTraj(content: string): { trajectory: CrystalTrajectory; volumetric?: VolumetricData } {
   const lines = content.split('\n');

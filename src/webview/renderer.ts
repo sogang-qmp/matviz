@@ -16,9 +16,8 @@ import { DisplacementArrowRenderer } from './displacementArrowRenderer';
 import { matchByNN, type DisplacementPair } from './nnMatching';
 
 /**
- * v0.17.2.3 — Comparison statistics shown in the side-panel summary.
- * RMSD + magnitude percentiles over matched pairs only; unmatched
- * counted separately.
+ * Comparison statistics shown in the side-panel summary. RMSD + magnitude
+ * percentiles over matched pairs only; unmatched counted separately.
  */
 export interface ComparisonStats {
   rmsd: number;              // Å, sqrt(mean(d²)) over matched pairs
@@ -121,59 +120,52 @@ export class CrystalRenderer {
   private currentImpostorMaterial: THREE.ShaderMaterial | null = null;
   private bondImpostorMaterial: THREE.ShaderMaterial | null = null;
 
-  // 16.1 thermal ellipsoids — opt-in. Atoms with thermalAniso[i] != null AND
-  // showEllipsoids=true are routed through ellipsoidRenderer (Phong-only,
-  // separate InstancedMesh per element). Atoms without aniso, or all atoms
-  // when showEllipsoids=false, fall through to the regular sphere/impostor
-  // path.
+  // Thermal ellipsoids — opt-in. Atoms with thermalAniso[i] != null AND
+  // showEllipsoids=true route through ellipsoidRenderer (Phong-only, one
+  // InstancedMesh per element). Otherwise atoms fall through to the regular
+  // sphere/impostor path.
   private ellipsoidRenderer = new EllipsoidRenderer();
   private showEllipsoids = false;
 
-  // 16.2 partial occupancy — opt-in. Atoms with occupancy < 1.0 AND
+  // Partial occupancy — opt-in. Atoms with occupancy < 1.0 AND
   // showPartialOccupancy=true render as individual transparent Phong meshes
-  // (per-site opacity preserved). Otherwise rendered as full atoms via the
-  // regular path (matches the pre-v0.16 behavior — no visual change off).
+  // (per-site opacity preserved); otherwise atoms render at full opacity.
   private showPartialOccupancy = false;
 
-  // Per-atom vector overlay (generalized v0.18 — was 16.3 magmom). Opt-in
-  // arrow overlay independent of atom rendering. Hidden by default; the UI
-  // surfaces only when the structure carries non-zero atomVectors data.
+  // Per-atom vector overlay. Opt-in arrow overlay independent of atom
+  // rendering; UI surfaces only when the structure carries non-zero
+  // atomVectors data.
   private vectorArrowRenderer = new VectorArrowRenderer();
   private showAtomVectors = false;
 
-  // 16.4 Wulff construction — command-palette driven overlay.
+  // Wulff construction — command-palette driven overlay.
   private wulffGroup = new THREE.Group();
   private currentWulffPlanes: Array<{ h: number; k: number; l: number; gamma: number }> | null = null;
 
-  // v0.17 trajectory state. Null means single-frame mode (loaded via
-  // loadStructure). Trajectory loaded via loadTrajectory; setFrame swaps
-  // this.structure to a different frame WITHOUT the heavy reset that
-  // loadStructure does (bondParams, selection, measurements persist
-  // across frames so user state isn't lost during playback).
+  // Trajectory state. Null means single-frame (loaded via loadStructure);
+  // setFrame swaps this.structure WITHOUT the heavy reset loadStructure
+  // does, so bondParams, selection, and measurements persist across frames.
   private trajectory: CrystalTrajectory | null = null;
   private currentFrameIndex = 0;
-  // v0.17.2 multi-phase overlay — additional structures rendered alongside
-  // the primary. Each is rendered as transparent atoms (no bonds/boundary)
-  // with a configurable cartesian offset. Rebuilt when addPhase/clearPhases
-  // is called; not affected by setFrame (primary trajectory plays
-  // independently of overlaid phases).
+  // Multi-phase overlay — additional structures rendered alongside the
+  // primary as transparent atoms (no bonds/boundary), each with a
+  // configurable cartesian offset. Not affected by setFrame.
   private secondaryPhasesGroup = new THREE.Group();
   private secondaryPhases: { struct: CrystalStructure; offset: [number, number, number]; opacity: number }[] = [];
 
-  // v0.17.1 (17.3) comparison mode — displacement arrows between primary
-  // current frame and first secondary phase. `comparisonActive` + the
-  // cached `comparisonSecondaryPhase` reference drive frame-aware
-  // recomputation when `setFrame()` advances the primary trajectory.
+  // Comparison mode — displacement arrows between primary current frame and
+  // first secondary phase. `comparisonActive` + the cached
+  // `comparisonSecondaryPhase` reference drive frame-aware recomputation
+  // when `setFrame()` advances the primary trajectory.
   private displacementArrowRenderer = new DisplacementArrowRenderer();
   private comparisonActive = false;
   private comparisonSecondaryPhase: { struct: CrystalStructure; offset: [number, number, number]; opacity: number } | null = null;
-  // 17.2.3 RMSD/displacement summary stats — recomputed in
-  // recomputeComparison(). UI reads via getComparisonStats().
+  // RMSD/displacement summary stats, recomputed in recomputeComparison().
+  // UI reads via getComparisonStats().
   private lastComparisonStats: ComparisonStats | null = null;
-  // 17.1.5 perf knob: when true, every setFrame re-runs detectBonds
-  // (O(N) spatial hash). Default false — first frame's bonds are inherited
-  // by all subsequent frames, accepting that bonds may be slightly off
-  // when atoms drift far in MD. Auto-disabled in UI for >5k atoms.
+  // Perf knob: when true, every setFrame re-runs detectBonds (O(N) spatial
+  // hash). Default false — first frame's bonds inherit to subsequent frames,
+  // accepting that bonds may drift in long MD. Auto-disabled for >5k atoms.
   private recomputeBondsPerFrame = false;
 
   // Per-element user overrides
@@ -305,9 +297,9 @@ export class CrystalRenderer {
   }
 
   /**
-   * v0.17 trajectory entry. Stores the trajectory + renders frame 0 with
-   * the full reset (bondParams, selection, etc.). Subsequent frame changes
-   * use setFrame() which is a lighter swap.
+   * Trajectory entry. Stores the trajectory + renders frame 0 with the
+   * full reset (bondParams, selection, etc.). Subsequent frames use the
+   * lighter setFrame() swap.
    */
   loadTrajectory(traj: CrystalTrajectory) {
     if (traj.frames.length === 0) return;
@@ -344,21 +336,20 @@ export class CrystalRenderer {
       this.updateAxisIndicator();
     }
     this.rebuild(false, !this.recomputeBondsPerFrame);
-    // 17.3.1 frame-aware comparison: re-match against the same secondary
-    // phase using new primary positions.
+    // Frame-aware comparison: re-match against the same secondary phase
+    // using new primary positions.
     if (this.comparisonActive) this.recomputeComparison();
   }
 
-  // 17.1.5: trajectory bond-recompute toggle.
   setRecomputeBondsPerFrame(b: boolean): void { this.recomputeBondsPerFrame = b; }
   getRecomputeBondsPerFrame(): boolean { return this.recomputeBondsPerFrame; }
 
-  /** Cheap helper for UI gating (used by 17.1.5 auto-disable threshold). */
+  /** Cheap helper for UI gating (auto-disable threshold). */
   getAtomCount(): number {
     return this.structure ? this.structure.species.length : 0;
   }
 
-  // 17.2 multi-phase overlay API.
+  // Multi-phase overlay API.
   addPhase(struct: CrystalStructure, offset: [number, number, number] = [0, 0, 0], opacity = 0.5): void {
     this.secondaryPhases.push({ struct, offset, opacity });
     this.rebuildSecondaryPhases();
@@ -373,7 +364,7 @@ export class CrystalRenderer {
 
   getPhaseCount(): number { return this.secondaryPhases.length; }
 
-  /** Per-phase introspection for the side-panel UI list rendering (17.2.1). */
+  /** Per-phase introspection for the side-panel UI list rendering. */
   getPhases(): Array<{ atomCount: number; opacity: number; visible: boolean }> {
     return this.secondaryPhases.map(p => ({
       atomCount: p.struct.species.length,
@@ -406,7 +397,7 @@ export class CrystalRenderer {
     this.rebuildSecondaryPhases();
   }
 
-  // 17.3 comparison mode API.
+  // Comparison mode API.
   compareToPhase(): { ok: boolean; reason?: string } {
     if (this.secondaryPhases.length === 0) {
       return { ok: false, reason: 'no secondary phase — run "MatViz: Add Phase" first' };
@@ -430,7 +421,7 @@ export class CrystalRenderer {
 
   isComparisonActive(): boolean { return this.comparisonActive; }
 
-  /** 17.2.3: latest comparison statistics, recomputed each setFrame +
+  /** Latest comparison statistics, recomputed on each setFrame +
    *  compareToPhase. Null when comparison is inactive. */
   getComparisonStats(): ComparisonStats | null { return this.lastComparisonStats; }
 
@@ -445,10 +436,9 @@ export class CrystalRenderer {
       p[1] + sec.offset[1],
       p[2] + sec.offset[2],
     ]);
-    // 17.2.2 PBC-aware matching: pass primary lattice when both structures
-    // share the same lattice (object identity → trajectory fixed-cell or
-    // user comparing variants of the same crystal). Cell-mismatched cases
-    // (e.g. relaxed vs unrelaxed lattice constants) fall back to raw
+    // PBC-aware matching: pass primary lattice when both structures share
+    // the same lattice (object identity ⇒ trajectory fixed-cell or comparing
+    // variants of the same crystal). Cell-mismatched cases fall back to raw
     // cartesian — minimum-image with mismatched cells is ill-defined.
     const sameLattice = this.structure.lattice === sec.struct.lattice;
     const lattice = sameLattice ? this.structure.lattice : undefined;
@@ -461,7 +451,7 @@ export class CrystalRenderer {
       lattice,
     );
     this.displacementArrowRenderer.rebuild(result.pairs, this.structure.positions);
-    // 17.2.3 stats: RMSD + magnitude statistics over matched pairs.
+    // RMSD + magnitude statistics over matched pairs.
     this.lastComparisonStats = computeComparisonStats(result.pairs, result.unmatched.length);
     this.requestRender();
   }
@@ -486,8 +476,8 @@ export class CrystalRenderer {
     // rebuildSecondaryPhases disposes it (above loop catches it through
     // the InstancedMesh.geometry chain).
     for (const phase of this.secondaryPhases) {
-      // 17.2.1 visibility toggle: per-phase _visible flag (lazy field on the
-      // phase object). When false, skip rebuild for this phase entirely.
+      // Visibility toggle: per-phase _visible flag (lazy field on the phase
+      // object). When false, skip rebuild for this phase entirely.
       if ((phase as any)._visible === false) continue;
       const groups = new Map<string, number[]>();
       for (let i = 0; i < phase.struct.species.length; i++) {
@@ -643,9 +633,8 @@ export class CrystalRenderer {
     return !!this.structure?.occupancy?.some(o => o < 1.0 - 1e-6);
   }
 
-  // Per-atom vector overlay — toggle, colormap, and helpers. Generalized
-  // from the original magmom-only API in v0.18; semantics now come from
-  // structure.atomVectors.kind/label/unit.
+  // Per-atom vector overlay — toggle, colormap, and helpers. Semantics
+  // come from structure.atomVectors.kind/label/unit.
   setShowAtomVectors(enabled: boolean) {
     if (enabled === this.showAtomVectors) return;
     this.showAtomVectors = enabled;
@@ -987,12 +976,12 @@ export class CrystalRenderer {
   private volumetricData: VolumetricData | null = null;
   private isoLevel = 0;
 
-  loadVolumetric(data: { origin: [number, number, number]; lattice: [number, number, number][]; dims: [number, number, number]; data: number[] }) {
+  loadVolumetric(data: { origin: [number, number, number]; lattice: [number, number, number][]; dims: [number, number, number]; data: Float32Array }) {
     this.volumetricData = {
       origin: data.origin,
       lattice: data.lattice,
       dims: data.dims,
-      data: new Float32Array(data.data),
+      data: data.data,
     };
     // Auto set iso level to 10% of max value
     let maxVal = 0;
@@ -1160,10 +1149,9 @@ export class CrystalRenderer {
     }
     const formula = [...counts.entries()].map(([el, n]) => n > 1 ? `${el}${n}` : el).join('');
 
-    // v0.20: structure.spaceGroup is now populated by the spglib post-parser
-    // pass on the extension host side for every parsed structure. The 'P1'
-    // fallback only fires if (a) spglib init failed (warned at activation),
-    // or (b) detectSymmetry threw (degenerate/zero-volume cell).
+    // structure.spaceGroup is populated by the spglib post-parser pass on
+    // the extension host. The 'P1' fallback fires only if spglib init failed
+    // or detectSymmetry threw (degenerate/zero-volume cell).
     return {
       spaceGroup: this.structure.spaceGroup || 'P1',
       formula,
@@ -1318,7 +1306,7 @@ export class CrystalRenderer {
     this.requestRender();
   }
 
-  // --- v0.4: Navigation ---
+  // --- Navigation ---
 
   viewAlongAxis(axis: 'a' | 'b' | 'c' | 'a*' | 'b*' | 'c*') {
     if (!this.structure) return;
@@ -1920,9 +1908,8 @@ export class CrystalRenderer {
    * Rebuild the atom/bond/cell visuals from `this.structure`. Two flags:
    *   resetCamera (default true)        — re-fit the camera to new bbox
    *   skipBondsRecompute (default false) — keep `this.cachedBonds` instead
-   *     of re-running `detectBonds()`. 17.1.5 trajectory playback path:
-   *     setFrame passes true so MD frames inherit frame-0 bond pattern
-   *     (cheap O(visualization), not O(detection)).
+   *     of re-running `detectBonds()`. setFrame passes true during
+   *     trajectory playback so MD frames inherit the frame-0 bond pattern.
    */
   private rebuild(resetCamera = true, skipBondsRecompute = false) {
     const struct = this.structure!;
@@ -1983,9 +1970,8 @@ export class CrystalRenderer {
     this.buildAtoms(species, positions, style, bonds);
     this.pickingRenderer.rebuild(this.atomMeshMap, this.impostorEnabled, this.cameraMode === 'orthographic');
 
-    // Atom-vector arrow overlay (generalized v0.18). Looks up the per-atom
-    // vector via expandedUnitCellIndex; arrows are skipped for zero vectors
-    // (length < 1e-4).
+    // Atom-vector arrow overlay. Looks up the per-atom vector via
+    // expandedUnitCellIndex; arrows are skipped for zero vectors (< 1e-4).
     this.vectorArrowRenderer.clear();
     const vec = this.structure?.atomVectors?.values;
     if (this.showAtomVectors && vec && style !== 'wireframe') {

@@ -1,16 +1,13 @@
 import * as THREE from 'three';
 
 /**
- * Per-atom vector arrow overlay (generalized in v0.18 from the v0.16.3
- * magnetic-moment renderer — same geometry, agnostic to vector semantics).
+ * Per-atom vector arrow overlay (semantics-agnostic).
  *
  * Each non-zero per-atom vector is drawn as an arrow centered on the atom.
- * Both shaft and tip are InstancedMesh so a structure with tens or hundreds
- * of vectors costs O(2) draw calls regardless of count. Per-instance color
- * (instanceColor) carries a colormap value derived from |v| or sign(v_z).
- *
- * Geometries are unit-aligned to +y and rotated via
- * Quaternion.setFromUnitVectors(y, v̂).
+ * Both shaft and tip are InstancedMesh so a structure with hundreds of
+ * vectors costs O(2) draw calls. Per-instance color carries a colormap
+ * value derived from |v| or sign(v_z). Geometries are unit-aligned to +y
+ * and rotated via Quaternion.setFromUnitVectors(y, v̂).
  */
 
 export interface VectorArrowInstance {
