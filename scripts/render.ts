@@ -54,6 +54,7 @@ interface RenderOptions {
   polyhedra: boolean;
   polyhedraCenters: string[] | null;
   iso: number | null;
+  grid: string;  // v0.23.4: select named volumetric grid (CHGCAR charge/magnetization/spin_up·down/σ, or XSF datagrid label); '' = first
   plane: [number, number, number] | null;
   test: boolean;
   // Per-atom vector overlay.
@@ -99,6 +100,7 @@ function parseArgs(argv: string[]): RenderOptions {
     polyhedra: false,
     polyhedraCenters: null,
     iso: null,
+    grid: '',
     plane: null,
     test: false,
     vectors: false,
@@ -143,6 +145,7 @@ function parseArgs(argv: string[]): RenderOptions {
         opts.polyhedra = true;
         break;
       case '--iso': opts.iso = parseFloat(args[++i]); break;
+      case '--grid': opts.grid = args[++i]; break;
       case '--plane': opts.plane = args[++i].split(',').map(Number) as [number, number, number]; break;
       case '--vectors': case '--magmom':
         opts.vectors = true; break;
@@ -238,6 +241,11 @@ Options:
                          Comma-separated element symbols used as polyhedra centers (e.g. Ti,Fe).
                          Implies --polyhedra. Overrides auto-detection.
   --iso <level>          Isosurface level (volumetric data only)
+  --grid <name>          Select which volumetric grid to render when a file has
+                         several: CHGCAR spin → charge | magnetization | spin_up |
+                         spin_down (collinear) or magnetization_x|_y|_z (SOC); XSF
+                         multi-datagrid → the datagrid label. Default: first grid.
+                         An unknown name prints the available names to stderr.
   --plane <h,k,l>        Add lattice plane
   --vectors              Show per-atom vector arrows. Auto-detected from POSCAR
                          MAGMOM, XSF trailing columns (cols 5–7), extended-XYZ
@@ -1696,11 +1704,22 @@ async function render(opts: RenderOptions) {
       // Trajectory-aware dispatch.
       const trajResult = parseStructureFileTraj(content, filename);
       const traj = trajResult.trajectory;
-      const volumetricJSON = trajResult.volumetric ? JSON.stringify({
-        origin: trajResult.volumetric.origin,
-        lattice: trajResult.volumetric.lattice,
-        dims: trajResult.volumetric.dims,
-        data: Array.from(trajResult.volumetric.data),
+      // v0.23.4: pick the named grid when --grid is given; else grid[0].
+      const allGrids = trajResult.volumetrics ?? (trajResult.volumetric ? [trajResult.volumetric] : []);
+      let chosenGrid = allGrids[0];
+      if (opts.grid && allGrids.length > 0) {
+        const match = allGrids.find(g => g.name === opts.grid);
+        if (match) {
+          chosenGrid = match;
+        } else {
+          console.error(`[matviz] --grid "${opts.grid}" not found. Available: ${allGrids.map(g => g.name ?? '(unnamed)').join(', ')}. Using "${chosenGrid?.name ?? 'first'}".`);
+        }
+      }
+      const volumetricJSON = chosenGrid ? JSON.stringify({
+        origin: chosenGrid.origin,
+        lattice: chosenGrid.lattice,
+        dims: chosenGrid.dims,
+        data: Array.from(chosenGrid.data),
       }) : null;
 
       // Multi-phase overlay: load + parse each --phase file (single-frame

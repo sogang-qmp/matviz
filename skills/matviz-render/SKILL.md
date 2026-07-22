@@ -66,6 +66,7 @@ before reporting completion. Silent success is not success.
 | `--polyhedra` | flag | off | Show coordination polyhedra (auto-detects cation-like elements with max coordination 4–8) |
 | `--polyhedra-centers` | `El1,El2,…` | auto | Comma-separated elements used as polyhedra centers (e.g. `Ti,Fe`). Implies `--polyhedra`. |
 | `--iso` | number | off | Isosurface level (for Cube/CHGCAR/XSF with volumetric data) |
+| `--grid` | name | first | Select a named grid when the file has several: **CHGCAR spin** → `charge`, `magnetization`, `spin_up`, `spin_down` (collinear) or `magnetization_x`/`_y`/`_z` (SOC); **XSF multi-datagrid** → the datagrid label. Unknown names print the available list to stderr and fall back to the first grid. |
 | `--plane` | `h,k,l` | off | Add lattice plane |
 | `--vectors` | flag | off | Render per-atom vector arrows. Auto-detected from POSCAR `MAGMOM`, XSF trailing columns (cols 5–7), extended-XYZ `Properties=` (`magmom`/`forces`/`velocities`/`displacements`), CIF `_atom_site_moment_*`. Aliased as `--magmom` for backward-compat. |
 | `--vector-colormap` | `redblue`\|`viridis` | `redblue` | Arrow color: `redblue` = sign-coded by v_z (FM/AFM intuition); `viridis` = sequential by \|v\|. Alias: `--magmom-colormap`. |
@@ -111,6 +112,16 @@ node {{MATVIZ_DIR}}/dist/render.js h2o.cube \
 Tip: iso level depends on the data's value range. Start at ~0.05 for typical
 charge densities, then bracket up/down. Both positive and negative lobes are
 rendered (blue / red, VESTA convention) when the data is signed.
+
+**Spin-polarized CHGCAR — pick the grid**
+```bash
+# Collinear CHGCAR exposes charge / magnetization / spin_up / spin_down.
+node {{MATVIZ_DIR}}/dist/render.js CHGCAR -o mag.png --grid magnetization --iso 0.02
+# SOC / non-collinear exposes charge + magnetization_x / _y / _z.
+node {{MATVIZ_DIR}}/dist/render.js CHGCAR -o mz.png  --grid magnetization_z --iso 0.02
+```
+The file must be named so matviz recognizes it as CHGCAR (`CHGCAR`, `AECCAR0/2`,
+`PARCHG`). An unknown `--grid` prints the available grid names to stderr.
 
 **Coordination polyhedra (silicon tetrahedra example)**
 ```bash

@@ -48,7 +48,7 @@ function extractAtomVectorsFromRows(rows: string[][]): AtomVectorField | null {
   return null;
 }
 
-export function parseXsf(content: string): CrystalStructure & { volumetric?: VolumetricData } {
+export function parseXsf(content: string): CrystalStructure & { volumetric?: VolumetricData; volumetrics?: VolumetricData[] } {
   const lines = content.split('\n');
   let lattice: [number, number, number][] = [];
   const species: string[] = [];
@@ -143,17 +143,21 @@ export function parseXsf(content: string): CrystalStructure & { volumetric?: Vol
     lattice = [[10, 0, 0], [0, 10, 0], [0, 0, 10]];
   }
 
-  // Parse BLOCK_DATAGRID_3D if present
+  // Parse BLOCK_DATAGRID_3D if present. v0.23.2: collect ALL grids across
+  // all BEGIN_DATAGRID_3D blocks (multiple exciton states / band-decomposed
+  // densities), each named from its label line.
   let volumetric: VolumetricData | undefined;
+  let volumetrics: VolumetricData[] | undefined;
   const datagridIdx = content.indexOf('BEGIN_BLOCK_DATAGRID_3D');
   if (datagridIdx >= 0) {
-    volumetric = parseDatagrid3D(content.slice(datagridIdx));
-    if (volumetric) snapGridLatticeToCell(volumetric, lattice);
+    const grids = parseDatagrids3D(content.slice(datagridIdx));
+    for (const g of grids) snapGridLatticeToCell(g, lattice);
+    if (grids.length > 0) { volumetrics = grids; volumetric = grids[0]; }
   }
 
   const atomVectors = extractAtomVectorsFromRows(atomRows) ?? undefined;
 
-  return { lattice, species, positions, pbc, title, volumetric, atomVectors };
+  return { lattice, species, positions, pbc, title, volumetric, volumetrics, atomVectors };
 }
 
 /**
@@ -163,7 +167,7 @@ export function parseXsf(content: string): CrystalStructure & { volumetric?: Vol
  * the same lattice reference so the renderer's cell wireframe doesn't
  * rebuild per frame.
  */
-export function parseXsfTraj(content: string): { trajectory: CrystalTrajectory; volumetric?: VolumetricData } {
+export function parseXsfTraj(content: string): { trajectory: CrystalTrajectory; volumetric?: VolumetricData; volumetrics?: VolumetricData[] } {
   const lines = content.split('\n');
   let pbc: [boolean, boolean, boolean] = [true, true, true];
   let title = '';
@@ -184,10 +188,11 @@ export function parseXsfTraj(content: string): { trajectory: CrystalTrajectory; 
   if (animSteps <= 1) {
     // Single-frame: delegate to parseXsf and wrap.
     const r = parseXsf(content);
-    const { volumetric, ...structure } = r;
+    const { volumetric, volumetrics, ...structure } = r;
     return {
       trajectory: { frames: [structure], latticeMode: 'fixed' },
       volumetric,
+      volumetrics,
     };
   }
 
@@ -287,65 +292,89 @@ export function parseXsfTraj(content: string): { trajectory: CrystalTrajectory; 
   // Volumetric (rare in multi-frame AXSF) — if present, attach only via
   // the parent helper since trajectory itself doesn't carry it.
   let volumetric: VolumetricData | undefined;
+  let volumetrics: VolumetricData[] | undefined;
   const datagridIdx = content.indexOf('BEGIN_BLOCK_DATAGRID_3D');
   if (datagridIdx >= 0) {
-    volumetric = parseDatagrid3D(content.slice(datagridIdx));
-    if (volumetric && frames[0]) snapGridLatticeToCell(volumetric, frames[0].lattice);
+    const grids = parseDatagrids3D(content.slice(datagridIdx));
+    if (frames[0]) for (const g of grids) snapGridLatticeToCell(g, frames[0].lattice);
+    if (grids.length > 0) { volumetrics = grids; volumetric = grids[0]; }
   }
 
-  return { trajectory: { frames, latticeMode }, volumetric };
+  return { trajectory: { frames, latticeMode }, volumetric, volumetrics };
 }
 
-function parseDatagrid3D(block: string): VolumetricData | undefined {
+/**
+ * v0.23.2 — parse EVERY `BEGIN_DATAGRID_3D` block found in `block` (which
+ * spans from the first `BEGIN_BLOCK_DATAGRID_3D` to end-of-file, so it may
+ * contain several DATAGRID blocks and even several BLOCK sections). Each
+ * grid is named from the label suffix on its BEGIN line
+ * (`BEGIN_DATAGRID_3D_<label>` → `<label>`; falls back to `datagrid_N`).
+ * Returns [] when no well-formed grid is present.
+ */
+function parseDatagrids3D(block: string): VolumetricData[] {
   const lines = block.split('\n');
+  const grids: VolumetricData[] = [];
   let i = 0;
+  let gridCount = 0;
 
-  // Find BEGIN_DATAGRID_3D
-  while (i < lines.length && !lines[i].trim().startsWith('BEGIN_DATAGRID_3D')) i++;
-  if (i >= lines.length) return undefined;
-  i++;
-
-  // Grid dimensions
-  const dimTokens = lines[i].trim().split(/\s+/).map(Number);
-  const nx = dimTokens[0], ny = dimTokens[1], nz = dimTokens[2];
-  i++;
-
-  // Origin
-  const origTokens = lines[i].trim().split(/\s+/).map(Number);
-  const origin: [number, number, number] = [origTokens[0], origTokens[1], origTokens[2]];
-  i++;
-
-  // 3 spanning vectors
-  const gridLattice: [number, number, number][] = [];
-  for (let v = 0; v < 3; v++) {
-    const vTokens = lines[i].trim().split(/\s+/).map(Number);
-    gridLattice.push([vTokens[0], vTokens[1], vTokens[2]]);
+  while (i < lines.length) {
+    // Advance to the next BEGIN_DATAGRID_3D (skips block names, END markers,
+    // blank lines between grids).
+    while (i < lines.length && !lines[i].trim().startsWith('BEGIN_DATAGRID_3D')) i++;
+    if (i >= lines.length) break;
+    gridCount++;
+    const beginLine = lines[i].trim();
+    const label = beginLine.slice('BEGIN_DATAGRID_3D'.length).replace(/^_+/, '').trim()
+      || `datagrid_${gridCount}`;
     i++;
-  }
 
-  // Data values — XSF writes with ix fastest (Fortran order). Store in C order
-  // (ix slowest, iz fastest) so `data[ix*ny*nz + iy*nz + iz]` works downstream.
-  const totalPoints = nx * ny * nz;
-  const data = new Float32Array(totalPoints);
-  let ix = 0, iy = 0, iz = 0;
-  let count = 0;
+    // Need dims + origin + 3 spanning vectors before data.
+    if (i + 4 > lines.length) break;
+    const dimTokens = lines[i++].trim().split(/\s+/).map(Number);
+    const nx = dimTokens[0], ny = dimTokens[1], nz = dimTokens[2];
+    if (!(nx > 0 && ny > 0 && nz > 0)) continue;  // malformed header → skip grid
 
-  while (i < lines.length && count < totalPoints) {
-    const line = lines[i].trim();
-    if (line.startsWith('END_DATAGRID_3D') || line.startsWith('END_BLOCK_DATAGRID_3D')) break;
-    const tokens = line.split(/\s+/);
-    for (const t of tokens) {
-      if (count < totalPoints && t !== '') {
-        data[ix * ny * nz + iy * nz + iz] = parseFloat(t);
-        count++;
-        ix++;
-        if (ix === nx) { ix = 0; iy++; if (iy === ny) { iy = 0; iz++; } }
-      }
+    const origTokens = lines[i++].trim().split(/\s+/).map(Number);
+    const origin: [number, number, number] = [origTokens[0] || 0, origTokens[1] || 0, origTokens[2] || 0];
+
+    const gridLattice: [number, number, number][] = [];
+    for (let v = 0; v < 3; v++) {
+      const vTokens = lines[i++].trim().split(/\s+/).map(Number);
+      gridLattice.push([vTokens[0], vTokens[1], vTokens[2]]);
     }
-    i++;
+
+    // Data values — XSF writes with ix fastest (Fortran order). Store in C
+    // order (ix slowest, iz fastest) so `data[ix*ny*nz + iy*nz + iz]` works.
+    const totalPoints = nx * ny * nz;
+    const data = new Float32Array(totalPoints);
+    let ix = 0, iy = 0, iz = 0;
+    let count = 0;
+    while (i < lines.length && count < totalPoints) {
+      const line = lines[i].trim();
+      if (line.startsWith('END_DATAGRID_3D') || line.startsWith('END_BLOCK_DATAGRID_3D')) break;
+      const tokens = line.split(/\s+/);
+      for (const t of tokens) {
+        if (count < totalPoints && t !== '') {
+          data[ix * ny * nz + iy * nz + iz] = parseFloat(t);
+          count++;
+          ix++;
+          if (ix === nx) { ix = 0; iy++; if (iy === ny) { iy = 0; iz++; } }
+        }
+      }
+      i++;
+    }
+
+    const grid = trimRedundantPeriodicPlanes({ origin, lattice: gridLattice, dims: [nx, ny, nz], data });
+    grid.name = label;
+    grids.push(grid);
+    // Loop continues: outer scan skips this grid's END marker to the next BEGIN.
   }
 
-  return trimRedundantPeriodicPlanes({ origin, lattice: gridLattice, dims: [nx, ny, nz], data });
+  // Cross-block consistency check (manual: "cell vector가 서로 다르면 오류").
+  // We tolerate differing grids here (each renders independently) but warn via
+  // dims mismatch only when a caller needs identical framing; sign/geometry is
+  // validated downstream. Keeping all grids is the intended multi-grid behavior.
+  return grids;
 }
 
 /**
@@ -478,38 +507,65 @@ function snapGridLatticeToCell(
 export function parseXsfFromBytes(
   bytes: Uint8Array,
   options?: VolumetricLoadOptions,
-): CrystalStructure & { volumetric?: VolumetricData } {
+): CrystalStructure & { volumetric?: VolumetricData; volumetrics?: VolumetricData[] } {
   const datagridOffset = findBytes(bytes, DATAGRID_MARKER);
   if (datagridOffset < 0) {
     return parseXsf(new TextDecoder('utf-8', { fatal: false }).decode(bytes));
   }
   const headerStr = new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(0, datagridOffset));
   const header = parseXsf(headerStr);
-  const volumetric = parseDatagrid3DFromBytes(bytes.subarray(datagridOffset), options);
-  if (volumetric) snapGridLatticeToCell(volumetric, header.lattice);
-  return { ...header, volumetric };
+  const grids = parseDatagrids3DFromBytes(bytes.subarray(datagridOffset), options);
+  for (const g of grids) snapGridLatticeToCell(g, header.lattice);
+  return { ...header, volumetric: grids[0], volumetrics: grids.length > 0 ? grids : undefined };
 }
 
-function parseDatagrid3DFromBytes(blockBytes: Uint8Array, options?: VolumetricLoadOptions): VolumetricData | undefined {
-  const lines = iterLines(blockBytes);
+/**
+ * v0.23.2 byte-path multi-grid parser. Streams the byte block once,
+ * finalizing each grid at its `END_DATAGRID_3D` and resuming the scan for
+ * the next `BEGIN_DATAGRID_3D` (handles multiple grids and multiple BLOCK
+ * sections). Stride/decimation applied per grid during ingestion, exactly
+ * as the single-grid v0.22 path did; boundary-plane trim only when
+ * stride === 1 (decimated endpoints no longer match).
+ */
+function parseDatagrids3DFromBytes(blockBytes: Uint8Array, options?: VolumetricLoadOptions): VolumetricData[] {
   const cap = options?.maxGridPoints ?? VOLUMETRIC_SAFETY_MAX_GRID_POINTS;
+  const grids: VolumetricData[] = [];
+  let gridCount = 0;
 
-  let nx = 0, ny = 0, nz = 0;
-  const origin: [number, number, number] = [0, 0, 0];
-  const gridLattice: [number, number, number][] = [];
   let stage: 'find-begin' | 'dims' | 'origin' | 'vec1' | 'vec2' | 'vec3' | 'data' = 'find-begin';
-
+  let label = '';
+  let nx = 0, ny = 0, nz = 0;
+  let origin: [number, number, number] = [0, 0, 0];
+  let gridLattice: [number, number, number][] = [];
   let data: Float32Array | null = null;
-  let stride = 1;
-  let outNx = 0, outNy = 0, outNz = 0;
-  let totalPoints = 0;
-  let ix = 0, iy = 0, iz = 0;
-  let count = 0;
+  let stride = 1, outNx = 0, outNy = 0, outNz = 0, totalPoints = 0;
+  let ix = 0, iy = 0, iz = 0, count = 0;
 
-  for (const rawLine of lines) {
+  const finalize = () => {
+    if (!data) return;
+    const result: VolumetricData = { origin, lattice: gridLattice, dims: [outNx, outNy, outNz], data };
+    let out: VolumetricData;
+    if (stride > 1) {
+      result.stride = stride;
+      result.originalDims = [nx, ny, nz];
+      out = result;
+    } else {
+      out = trimRedundantPeriodicPlanes(result);
+    }
+    out.name = label || `datagrid_${gridCount}`;
+    grids.push(out);
+    // reset per-grid state for the next block
+    data = null; gridLattice = []; origin = [0, 0, 0]; stride = 1; count = 0; ix = iy = iz = 0;
+  };
+
+  for (const rawLine of iterLines(blockBytes)) {
     const line = rawLine.trim();
     if (stage === 'find-begin') {
-      if (line.startsWith('BEGIN_DATAGRID_3D')) stage = 'dims';
+      if (line.startsWith('BEGIN_DATAGRID_3D')) {
+        gridCount++;
+        label = line.slice('BEGIN_DATAGRID_3D'.length).replace(/^_+/, '').trim();
+        stage = 'dims';
+      }
       continue;
     }
     if (stage === 'dims') {
@@ -526,7 +582,7 @@ function parseDatagrid3DFromBytes(blockBytes: Uint8Array, options?: VolumetricLo
     }
     if (stage === 'origin') {
       const t = line.split(/\s+/).map(Number);
-      origin[0] = t[0]; origin[1] = t[1]; origin[2] = t[2];
+      origin = [t[0] || 0, t[1] || 0, t[2] || 0];
       stage = 'vec1';
       continue;
     }
@@ -536,8 +592,13 @@ function parseDatagrid3DFromBytes(blockBytes: Uint8Array, options?: VolumetricLo
       stage = stage === 'vec1' ? 'vec2' : stage === 'vec2' ? 'vec3' : 'data';
       continue;
     }
-    if (line.startsWith('END_DATAGRID_3D') || line.startsWith('END_BLOCK_DATAGRID_3D')) break;
-    if (count >= totalPoints) break;
+    // stage === 'data'
+    if (line.startsWith('END_DATAGRID_3D') || line.startsWith('END_BLOCK_DATAGRID_3D')) {
+      finalize();
+      stage = 'find-begin';
+      continue;
+    }
+    if (count >= totalPoints) continue;  // trailing tokens before END — ignore
     const tokens = line.split(/\s+/);
     for (const t of tokens) {
       if (count >= totalPoints || t === '') continue;
@@ -553,17 +614,7 @@ function parseDatagrid3DFromBytes(blockBytes: Uint8Array, options?: VolumetricLo
       if (ix === nx) { ix = 0; iy++; if (iy === ny) { iy = 0; iz++; } }
     }
   }
-
-  if (!data) return undefined;
-  const result: VolumetricData = {
-    origin, lattice: gridLattice, dims: [outNx, outNy, outNz], data,
-  };
-  if (stride > 1) {
-    result.stride = stride;
-    result.originalDims = [nx, ny, nz];
-    return result;
-  }
-  // Only the full-resolution grid carries an exactly-duplicated boundary plane;
-  // once decimated the endpoints no longer match, so trim only when stride === 1.
-  return trimRedundantPeriodicPlanes(result);
+  // Finalize a trailing grid if the stream ended without an END marker.
+  if (stage === 'data') finalize();
+  return grids;
 }

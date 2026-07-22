@@ -5,7 +5,85 @@ import {
 import { parsePoscar } from './poscarParser';
 import { iterLines, offsetAfterLines } from './lineIterator';
 
-export function parseChgcar(content: string): { structure: CrystalStructure; volumetric: VolumetricData } {
+/**
+ * v0.23.3 — classify raw CHGCAR grid blocks into named volumetric grids.
+ *
+ * VASP block-count semantics:
+ *   1 → non-spin: [charge]
+ *   2 → collinear spin: [charge=(up+down), magnetization=(up−down)]
+ *        + derived spin_up=(c+m)/2, spin_down=(c−m)/2
+ *   4 → SOC / non-collinear: [charge, magnetization_x/y/z (σ₁/σ₂/σ₃)]
+ *
+ * `scale` (= 1/cellVolume) is applied to every grid (CHGCAR stores ρ·V).
+ * Magnetization / σ grids are tagged `kind:'signed'` so v0.24 defaults them
+ * to ± isosurfaces. spin_up/down are derived eagerly (see impl note): simple,
+ * matches the manual's 4-entry Model Tree, and memory is bounded by the
+ * v0.22 `maxGridPoints` decimation applied upstream.
+ */
+function buildChgcarGrids(
+  rawGrids: Float32Array[],
+  lattice: [number, number, number][],
+  dims: [number, number, number],
+  scale: number,
+  stride?: number,
+  originalDims?: [number, number, number],
+): VolumetricData[] {
+  if (rawGrids.length === 0) return [];
+  const norm = (a: Float32Array): Float32Array => {
+    const b = new Float32Array(a.length);
+    for (let i = 0; i < a.length; i++) b[i] = a[i] * scale;
+    return b;
+  };
+  const mk = (name: string, kind: 'scalar' | 'signed', arr: Float32Array): VolumetricData => {
+    const g: VolumetricData = { origin: [0, 0, 0], lattice, dims, data: arr, name, kind };
+    if (stride && stride > 1) { g.stride = stride; g.originalDims = originalDims; }
+    return g;
+  };
+  if (rawGrids.length >= 4) {
+    return [
+      mk('charge', 'scalar', norm(rawGrids[0])),
+      mk('magnetization_x', 'signed', norm(rawGrids[1])),
+      mk('magnetization_y', 'signed', norm(rawGrids[2])),
+      mk('magnetization_z', 'signed', norm(rawGrids[3])),
+    ];
+  }
+  if (rawGrids.length === 2) {
+    const c = norm(rawGrids[0]);
+    const m = norm(rawGrids[1]);
+    const up = new Float32Array(c.length);
+    const dn = new Float32Array(c.length);
+    for (let i = 0; i < c.length; i++) { up[i] = (c[i] + m[i]) / 2; dn[i] = (c[i] - m[i]) / 2; }
+    return [
+      mk('charge', 'scalar', c),
+      mk('magnetization', 'signed', m),
+      mk('spin_up', 'scalar', up),
+      mk('spin_down', 'scalar', dn),
+    ];
+  }
+  // 1 (or an unexpected 3) → treat the first block as total charge only.
+  return [mk('charge', 'scalar', norm(rawGrids[0]))];
+}
+
+/** Does a trimmed line encode exactly the grid dims `nx ny nz`? Used to find
+ * the start of each subsequent CHGCAR grid block past the augmentation
+ * sections that separate them. */
+function isDimsLine(line: string, nx: number, ny: number, nz: number): boolean {
+  const t = line.split(/\s+/);
+  return t.length === 3 && t.every(x => /^\d+$/.test(x)) &&
+    +t[0] === nx && +t[1] === ny && +t[2] === nz;
+}
+
+/** Cell volume |a · (b × c)| from lattice rows. */
+function cellVolume(lat: [number, number, number][]): number {
+  const a = lat[0], b = lat[1], c = lat[2];
+  return Math.abs(
+    a[0] * (b[1] * c[2] - b[2] * c[1]) -
+    a[1] * (b[0] * c[2] - b[2] * c[0]) +
+    a[2] * (b[0] * c[1] - b[1] * c[0])
+  );
+}
+
+export function parseChgcar(content: string): { structure: CrystalStructure; volumetric?: VolumetricData; volumetrics?: VolumetricData[] } {
   // CHGCAR = POSCAR header + blank line + grid dimensions + charge data
   const lines = content.split('\n');
 
@@ -59,48 +137,47 @@ export function parseChgcar(content: string): { structure: CrystalStructure; vol
   const nz = gridTokens[2];
   gridLine++;
 
-  // Read charge density values — CHGCAR writes with ix fastest (Fortran order).
-  // Store in C order (iz fastest) so `data[ix*ny*nz + iy*nz + iz]` works downstream.
+  // Read ALL grid blocks. CHGCAR writes with ix fastest (Fortran order);
+  // store in C order (iz fastest) so `data[ix*ny*nz + iy*nz + iz]` works.
+  // v0.23.3: after the first (charge) grid, VASP interleaves PAW
+  // `augmentation occupancies` sections; the next density block starts at a
+  // repeated `nx ny nz` dims line. Collect [charge], [charge,mag], or
+  // [charge,mag_x,mag_y,mag_z] and classify below.
   const totalPoints = nx * ny * nz;
-  const data = new Float32Array(totalPoints);
-  let ix = 0, iy = 0, iz = 0;
-  let count = 0;
+  const rawGrids: Float32Array[] = [];
+  let i = gridLine;
 
-  for (let i = gridLine; i < lines.length && count < totalPoints; i++) {
-    const line = lines[i].trim();
-    if (line === '' || line.startsWith('augmentation')) break;
-    const tokens = line.split(/\s+/);
-    for (const t of tokens) {
-      if (count < totalPoints && t !== '') {
-        data[ix * ny * nz + iy * nz + iz] = parseFloat(t);
-        count++;
-        ix++;
-        if (ix === nx) { ix = 0; iy++; if (iy === ny) { iy = 0; iz++; } }
+  while (rawGrids.length === 0 || i < lines.length) {
+    const data = new Float32Array(totalPoints);
+    let ix = 0, iy = 0, iz = 0, count = 0;
+    for (; i < lines.length && count < totalPoints; i++) {
+      const line = lines[i].trim();
+      if (line === '' || line.startsWith('augmentation')) break;
+      const tokens = line.split(/\s+/);
+      for (const t of tokens) {
+        if (count < totalPoints && t !== '') {
+          data[ix * ny * nz + iy * nz + iz] = parseFloat(t);
+          count++;
+          ix++;
+          if (ix === nx) { ix = 0; iy++; if (iy === ny) { iy = 0; iz++; } }
+        }
       }
     }
+    if (count < totalPoints) break;  // incomplete trailing block — stop
+    rawGrids.push(data);
+    // Seek the next density block's dims line (skipping augmentation/PAW).
+    let next = -1;
+    for (let j = i; j < lines.length; j++) {
+      if (isDimsLine(lines[j].trim(), nx, ny, nz)) { next = j; break; }
+    }
+    if (next < 0) break;
+    i = next + 1;  // data starts after the repeated dims line
   }
 
-  // Normalize by volume
-  const lat = structure.lattice;
-  const a = lat[0], b = lat[1], c = lat[2];
-  const vol = Math.abs(
-    a[0] * (b[1] * c[2] - b[2] * c[1]) -
-    a[1] * (b[0] * c[2] - b[2] * c[0]) +
-    a[2] * (b[0] * c[1] - b[1] * c[0])
-  );
-  const scale = 1 / vol;
-  for (let i = 0; i < data.length; i++) {
-    data[i] *= scale;
-  }
+  const scale = 1 / cellVolume(structure.lattice);
+  const volumetrics = buildChgcarGrids(rawGrids, structure.lattice, [nx, ny, nz], scale);
 
-  const volumetric: VolumetricData = {
-    origin: [0, 0, 0],
-    lattice: structure.lattice,
-    dims: [nx, ny, nz],
-    data,
-  };
-
-  return { structure, volumetric };
+  return { structure, volumetric: volumetrics[0], volumetrics };
 }
 
 /**
@@ -145,7 +222,7 @@ function findPoscarEnd(lines: string[]): number {
 export function parseChgcarFromBytes(
   bytes: Uint8Array,
   options?: VolumetricLoadOptions,
-): { structure: CrystalStructure; volumetric: VolumetricData } {
+): { structure: CrystalStructure; volumetric?: VolumetricData; volumetrics?: VolumetricData[] } {
   const PEEK = Math.min(bytes.length, 256 * 1024);
   const peekStr = new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(0, PEEK));
   const peekLines = peekStr.split('\n');
@@ -175,14 +252,40 @@ export function parseChgcarFromBytes(
   const outNx = Math.ceil(nx / stride);
   const outNy = Math.ceil(ny / stride);
   const outNz = Math.ceil(nz / stride);
-  const data = new Float32Array(outNx * outNy * outNz);
-  let ix = 0, iy = 0, iz = 0;
-  let count = 0;
+  // v0.23.3: stream ALL grid blocks (charge + magnetization/σ), skipping the
+  // PAW augmentation sections between them; each new block begins at a
+  // repeated `nx ny nz` dims line. Stride applied per grid during ingestion.
+  const rawGrids: Float32Array[] = [];
+  let data = new Float32Array(outNx * outNy * outNz);
+  let ix = 0, iy = 0, iz = 0, count = 0;
+  let reading = true;  // true = accumulating a grid; false = seeking next dims line
+
+  const startNewGrid = () => {
+    data = new Float32Array(outNx * outNy * outNz);
+    ix = iy = iz = count = 0;
+    reading = true;
+  };
 
   for (const rawLine of iterLines(bytes.subarray(dataStartByte))) {
-    if (count >= totalPoints) break;
     const line = rawLine.trim();
-    if (line === '' || line.startsWith('augmentation')) break;
+    if (!reading) {
+      if (isDimsLine(line, nx, ny, nz)) startNewGrid();
+      continue;
+    }
+    if (count >= totalPoints) {
+      // Current grid full: bank it, then seek the next block. The finishing
+      // line is usually `augmentation …`; if it's already the next dims line
+      // (no augmentation), start the next grid immediately.
+      rawGrids.push(data);
+      reading = false;
+      if (isDimsLine(line, nx, ny, nz)) startNewGrid();
+      continue;
+    }
+    if (line === '' || line.startsWith('augmentation')) {
+      // Separator before the grid was full → malformed block; drop partial.
+      reading = false;
+      continue;
+    }
     const tokens = line.split(/\s+/);
     for (const t of tokens) {
       if (count >= totalPoints || t === '') continue;
@@ -196,25 +299,13 @@ export function parseChgcarFromBytes(
       if (ix === nx) { ix = 0; iy++; if (iy === ny) { iy = 0; iz++; } }
     }
   }
+  // Bank a trailing grid that completed on the final line (no separator after).
+  if (reading && count >= totalPoints) rawGrids.push(data);
 
-  // Normalize by volume (same as parseChgcar).
-  const lat = structure.lattice;
-  const a = lat[0], b = lat[1], c = lat[2];
-  const vol = Math.abs(
-    a[0] * (b[1] * c[2] - b[2] * c[1]) -
-    a[1] * (b[0] * c[2] - b[2] * c[0]) +
-    a[2] * (b[0] * c[1] - b[1] * c[0])
+  const scale = 1 / cellVolume(structure.lattice);
+  const volumetrics = buildChgcarGrids(
+    rawGrids, structure.lattice, [outNx, outNy, outNz], scale, stride, [nx, ny, nz],
   );
-  const scale = 1 / vol;
-  for (let i = 0; i < data.length; i++) data[i] *= scale;
 
-  const volumetric: VolumetricData = {
-    origin: [0, 0, 0], lattice: structure.lattice, dims: [outNx, outNy, outNz], data,
-  };
-  if (stride > 1) {
-    volumetric.stride = stride;
-    volumetric.originalDims = [nx, ny, nz];
-  }
-
-  return { structure, volumetric };
+  return { structure, volumetric: volumetrics[0], volumetrics };
 }

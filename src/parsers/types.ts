@@ -39,6 +39,14 @@ export interface VolumetricData {
   lattice: [number, number, number][];
   dims: [number, number, number];          // dims after any v0.22 Tier 3 stride
   data: Float32Array;
+  // v0.23 multi-grid model. A structure may carry several named grids
+  // (CHGCAR charge/magnetization/spin_up·down/σ components, or multiple
+  // XSF BEGIN_DATAGRID_3D blocks). `name` is the UI label + `--grid`
+  // selector key; absent name ≡ the sole/primary grid. `kind` drives the
+  // default sign policy in v0.24 (signed grids default to ± isosurfaces);
+  // absent ≡ 'scalar'. Both additive — single-grid loads leave them unset.
+  name?: string;
+  kind?: 'scalar' | 'signed';
   // v0.22 Tier 3 — populated when load-time downsampling was applied. `stride`
   // is the integer skip factor along each axis (1 = no decimation); when stride
   // > 1, `originalDims` holds the pre-decimation grid shape so UI can show

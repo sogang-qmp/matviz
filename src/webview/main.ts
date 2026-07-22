@@ -1150,6 +1150,7 @@ type PersistedState = ReturnType<typeof renderer.getState> & {
   stepAngle?: number;
   stepZoom?: number;
   axisIndicatorOffset?: { dx: number; dy: number };
+  activeGrid?: number;  // v0.23.4 — selected volumetric grid index
 };
 function saveState() {
   const s = renderer.getState() as PersistedState;
@@ -1158,6 +1159,7 @@ function saveState() {
   s.stepAngle = parseFloat(stepAngleInput?.value) || 15;
   s.stepZoom = parseFloat(stepZoomInput?.value) || 10;
   s.axisIndicatorOffset = renderer.getAxisIndicatorOffset();
+  s.activeGrid = renderer.getActiveGridIndex();
   vscode.setState(s);
 }
 const debouncedSave = debounce(saveState, 300);
@@ -1621,50 +1623,118 @@ window.addEventListener('message', (event) => {
     case 'clearComparison':
       renderer.clearComparison();
       break;
-    case 'loadVolumetric': {
+    case 'loadVolumetric':
+      // Legacy single-grid path (kept for back-compat; the extension now
+      // sends `loadVolumetrics`).
       renderer.loadVolumetric(msg.data);
-      // v0.22 Tier 3: when ingestion applied a stride, tell the user so
-      // they don't mistake decimated samples for native resolution.
-      if (msg.data.stride && msg.data.stride > 1 && msg.data.originalDims) {
-        const [ox, oy, oz] = msg.data.originalDims;
-        const [nx, ny, nz] = msg.data.dims;
-        const fmt = (a: number, b: number, c: number) =>
-          a === b && b === c ? `${a}³` : `${a}×${b}×${c}`;
-        appendInfoPillMeta(`iso: <b>${fmt(ox, oy, oz)}</b> → <b>${fmt(nx, ny, nz)}</b> (stride ${msg.data.stride})`);
-      }
-      const isoSection = document.getElementById('iso-section')!;
-      const isoSlider = document.getElementById('iso-slider') as HTMLInputElement;
-      const isoInput = document.getElementById('iso-input') as HTMLInputElement;
-      const range = renderer.getIsoRange();
-      if (range) {
-        isoSection.classList.remove('hidden');
-        isoSection.style.display = '';
-        isoSlider.min = '0';
-        isoSlider.max = String(range.max);
-        isoSlider.step = String(range.max / 200);
-        isoSlider.value = String(renderer.getIsoLevel());
-        isoInput.value = renderer.getIsoLevel().toExponential(3);
-        // Replace elements to clear old listeners
-        const newSlider = isoSlider.cloneNode(true) as HTMLInputElement;
-        isoSlider.replaceWith(newSlider);
-        const newInput = isoInput.cloneNode(true) as HTMLInputElement;
-        isoInput.replaceWith(newInput);
-        newSlider.addEventListener('input', () => {
-          const level = parseFloat(newSlider.value);
-          renderer.setIsoLevel(level);
-          newInput.value = level.toExponential(3);
-        });
-        newInput.addEventListener('change', () => {
-          const level = parseFloat(newInput.value);
-          if (!isNaN(level) && level >= 0) {
-            renderer.setIsoLevel(level);
-            newSlider.value = String(level);
-          }
-        });
-      }
+      applyVolumetricUi(msg.data);
       break;
-    }
+    case 'loadVolumetrics':
+      // v0.23 multi-grid path. Renderer meshes grid[0] by default; the
+      // stride pill / iso panel reflect the active (first) grid.
+      renderer.loadVolumetrics(msg.data);
+      applyVolumetricUi(msg.data[0]);
+      break;
+    case 'setActiveGrid':
+      renderer.setActiveGrid(msg.index);
+      break;
   }
 });
+
+/**
+ * Wire the stride info-pill and iso-level panel to the currently active
+ * volumetric grid. Shared by the `loadVolumetric` (legacy) and
+ * `loadVolumetrics` (v0.23) message handlers. `first` is the grid whose
+ * decimation metadata drives the pill; iso range/level come from the
+ * renderer's active grid so it stays correct after `setActiveGrid`.
+ */
+function applyVolumetricUi(first?: { dims: [number, number, number]; stride?: number; originalDims?: [number, number, number] }) {
+  // v0.22 Tier 3: when ingestion applied a stride, tell the user so
+  // they don't mistake decimated samples for native resolution.
+  if (first && first.stride && first.stride > 1 && first.originalDims) {
+    const [ox, oy, oz] = first.originalDims;
+    const [nx, ny, nz] = first.dims;
+    const fmt = (a: number, b: number, c: number) =>
+      a === b && b === c ? `${a}³` : `${a}×${b}×${c}`;
+    appendInfoPillMeta(`iso: <b>${fmt(ox, oy, oz)}</b> → <b>${fmt(nx, ny, nz)}</b> (stride ${first.stride})`);
+  }
+  populateGridSelect();
+  syncIsoPanel();
+}
+
+/**
+ * v0.23.4 — populate the "Grid" side-panel selector from the loaded named
+ * grids. Hidden for single-grid loads (behaves exactly as pre-v0.23).
+ * Restores the persisted active grid before the iso panel reads its range.
+ */
+function populateGridSelect() {
+  const section = document.getElementById('grid-section')!;
+  const sel = document.getElementById('grid-select') as HTMLSelectElement;
+  const names = renderer.getGridNames();
+  if (names.length <= 1) {
+    section.classList.add('hidden');
+    section.style.display = 'none';
+    return;
+  }
+  // Restore persisted active grid before the iso panel reads the range so it
+  // reflects the restored grid on reopen.
+  const saved = (vscode.getState() as { activeGrid?: number } | undefined)?.activeGrid;
+  if (typeof saved === 'number' && saved > 0 && saved < names.length) {
+    renderer.setActiveGrid(saved);
+  }
+  // Rebuild options via DOM API (textContent is injection-safe for labels).
+  sel.textContent = '';
+  names.forEach((n, i) => {
+    const o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = n;
+    sel.appendChild(o);
+  });
+  sel.value = String(renderer.getActiveGridIndex());
+  section.classList.remove('hidden');
+  section.style.display = '';
+  if (!sel.dataset.bound) {
+    sel.addEventListener('change', () => {
+      renderer.setActiveGrid(parseInt(sel.value, 10));
+      syncIsoPanel();  // new grid → new iso range/level
+      debouncedSave();
+    });
+    sel.dataset.bound = '1';
+  }
+}
+
+/** Sync the iso-level slider/input to the renderer's active grid range. */
+function syncIsoPanel() {
+  const isoSection = document.getElementById('iso-section')!;
+  const isoSlider = document.getElementById('iso-slider') as HTMLInputElement;
+  const isoInput = document.getElementById('iso-input') as HTMLInputElement;
+  const range = renderer.getIsoRange();
+  if (range) {
+    isoSection.classList.remove('hidden');
+    isoSection.style.display = '';
+    isoSlider.min = '0';
+    isoSlider.max = String(range.max);
+    isoSlider.step = String(range.max / 200);
+    isoSlider.value = String(renderer.getIsoLevel());
+    isoInput.value = renderer.getIsoLevel().toExponential(3);
+    // Replace elements to clear old listeners
+    const newSlider = isoSlider.cloneNode(true) as HTMLInputElement;
+    isoSlider.replaceWith(newSlider);
+    const newInput = isoInput.cloneNode(true) as HTMLInputElement;
+    isoInput.replaceWith(newInput);
+    newSlider.addEventListener('input', () => {
+      const level = parseFloat(newSlider.value);
+      renderer.setIsoLevel(level);
+      newInput.value = level.toExponential(3);
+    });
+    newInput.addEventListener('change', () => {
+      const level = parseFloat(newInput.value);
+      if (!isNaN(level) && level >= 0) {
+        renderer.setIsoLevel(level);
+        newSlider.value = String(level);
+      }
+    });
+  }
+}
 
 vscode.postMessage({ type: 'ready' });

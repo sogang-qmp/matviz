@@ -13,12 +13,47 @@ import { parseAims } from './aimsParser';
 
 export interface ParseResult {
   structure: CrystalStructure;
+  // v0.23 multi-grid: `volumetrics` is the canonical list; `volumetric`
+  // is a back-compat alias === `volumetrics?.[0]`. Single-grid parsers
+  // (v0.22 and earlier behavior) populate exactly one entry.
   volumetric?: VolumetricData;
+  volumetrics?: VolumetricData[];
 }
 
 export interface ParseTrajectoryResult {
   trajectory: CrystalTrajectory;
-  volumetric?: VolumetricData;  // first-frame volumetric only
+  volumetric?: VolumetricData;  // back-compat alias === volumetrics?.[0]
+  volumetrics?: VolumetricData[];  // first-frame volumetric grids only
+}
+
+/**
+ * v0.23 — normalize a single-grid parse result into the multi-grid list.
+ * When a parser produced exactly one `volumetric` and no `volumetrics`
+ * list yet, wrap it into a length-1 list and give it a default name so
+ * the grid-selection UI (v0.23.4) has a label. Byte-identical to the
+ * pre-v0.23 path: the grid `data` is untouched. Parsers that already
+ * emit a `volumetrics` list (XSF multi-block v0.23.2, CHGCAR spin
+ * v0.23.3) are left as-is.
+ */
+function attachGridList<T extends { volumetric?: VolumetricData; volumetrics?: VolumetricData[] }>(
+  r: T, filename: string,
+): T {
+  if (r.volumetrics && r.volumetrics.length > 0) {
+    r.volumetric = r.volumetrics[0];
+    return r;
+  }
+  if (r.volumetric) {
+    const lower = filename.toLowerCase();
+    const isChg = lower === 'chgcar' || lower === 'aeccar0' || lower === 'aeccar2' || lower === 'parchg';
+    const named: VolumetricData = {
+      ...r.volumetric,
+      name: r.volumetric.name ?? (isChg ? 'charge' : 'density'),
+      kind: r.volumetric.kind ?? 'scalar',
+    };
+    r.volumetric = named;
+    r.volumetrics = [named];
+  }
+  return r;
 }
 
 // Cells past this size skip spglib — analyze_cell cost is non-monotone in
@@ -53,9 +88,9 @@ export function parseStructureFile(
   // (the safety default cap is byte-path-only since small files cannot
   // hit the 4 GiB ArrayBuffer ceiling).
   if (r.volumetric && options?.maxGridPoints != null) {
-    return { ...r, volumetric: decimateVolumetric(r.volumetric, options) };
+    return attachGridList({ ...r, volumetric: decimateVolumetric(r.volumetric, options) }, filename);
   }
-  return r;
+  return attachGridList(r, filename);
 }
 
 function parseStructureFileRaw(content: string, filename: string): ParseResult {
@@ -66,8 +101,8 @@ function parseStructureFileRaw(content: string, filename: string): ParseResult {
   }
   if (lower.endsWith('.xsf') || lower.endsWith('.axsf')) {
     const result = parseXsf(content);
-    const { volumetric, ...structure } = result;
-    return { structure, volumetric };
+    const { volumetric, volumetrics, ...structure } = result;
+    return { structure, volumetric, volumetrics };
   }
   if (lower.endsWith('.cube') || lower.endsWith('.cub')) {
     const result = parseCube(content);
@@ -117,8 +152,8 @@ function parseStructureFileRaw(content: string, filename: string): ParseResult {
   }
   if (content.includes('PRIMVEC') || content.includes('PRIMCOORD') || content.includes('CRYSTAL')) {
     const result = parseXsf(content);
-    const { volumetric, ...structure } = result;
-    return { structure, volumetric };
+    const { volumetric, volumetrics, ...structure } = result;
+    return { structure, volumetric, volumetrics };
   }
 
   // Default: try POSCAR
@@ -138,6 +173,7 @@ export function parseStructureFileTraj(
   if (r.volumetric && options?.maxGridPoints != null) {
     r.volumetric = decimateVolumetric(r.volumetric, options);
   }
+  attachGridList(r, filename);
   if (r.trajectory.frames.length > 0) {
     const f0 = withSymmetry(r.trajectory.frames[0]);
     r.trajectory.frames[0] = f0;
@@ -171,8 +207,8 @@ export function parseStructureFileTrajFromBytes(
   let result: ParseResult;
   if (lower.endsWith('.xsf') || lower.endsWith('.axsf')) {
     const r = parseXsfFromBytes(bytes, options);
-    const { volumetric, ...structure } = r;
-    result = { structure: structure as CrystalStructure, volumetric };
+    const { volumetric, volumetrics, ...structure } = r;
+    result = { structure: structure as CrystalStructure, volumetric, volumetrics };
   } else if (lower.endsWith('.cube') || lower.endsWith('.cub')) {
     result = parseCubeFromBytes(bytes, options);
   } else if (lower === 'chgcar' || lower === 'aeccar0' || lower === 'aeccar2' || lower === 'parchg') {
@@ -181,10 +217,10 @@ export function parseStructureFileTrajFromBytes(
     throw new Error(`parseStructureFileTrajFromBytes: unsupported byte-path format ${filename}`);
   }
   const f0 = withSymmetry(result.structure);
-  return {
+  return attachGridList({
     trajectory: { frames: [f0], latticeMode: 'fixed' },
     volumetric: result.volumetric,
-  };
+  }, filename);
 }
 
 /** File extensions that have a byte-path parser available. */
@@ -217,10 +253,13 @@ function parseStructureFileTrajRaw(content: string, filename: string): ParseTraj
     return parseXsfTraj(content);
   }
 
-  // Single-frame fallback wrapped as length-1 trajectory.
+  // Single-frame fallback wrapped as length-1 trajectory. v0.23: forward the
+  // full named-grid list (CHGCAR spin, multi-DATAGRID) — dropping `volumetrics`
+  // here silently collapses multi-grid files back to a single grid.
   const single = parseStructureFile(content, filename);
   return {
     trajectory: { frames: [single.structure], latticeMode: 'fixed' },
     volumetric: single.volumetric,
+    volumetrics: single.volumetrics,
   };
 }

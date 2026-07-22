@@ -398,7 +398,7 @@ builds on v0.23's named-grid model.
 
 | Ver | Tier | Theme | Plan | Headline features |
 |-----|------|-------|------|-------------------|
-| v0.23 | 1 (must) | **Multi-grid data model** | `plans/v0.23_multi-grid-data-model.md` | CHGCAR spin (charge/mag/spin_up·down + SOC σ₁σ₂σ₃); multi-`DATAGRID_3D` XSF; grid-selection surface (`--grid`) |
+| v0.23 ✅ | 1 (must) | **Multi-grid data model** — shipped 2026-07-22 | `plans/archives/v0.23_multi-grid-data-model.md` | CHGCAR spin (charge/mag/spin_up·down + SOC σ₁σ₂σ₃); multi-`DATAGRID_3D` XSF; grid-selection surface (`--grid`) |
 | v0.24 | 2 (cheap win) | **Signed-iso + value-range + measurement** | `plans/v0.24_signed-iso-and-measurement.md` | ± isosurface toggle + colors (renderer already draws both lobes); Level/Window + "Mid to 0"; centroid / center-of-mass |
 | v0.25 | 3 (big) | **Slice · BZ · Volume** | `plans/v0.25_slice-bz-volume.md` | 2D slice/Plane viewer; Brillouin-zone plot + k-path; WebGL2 3D-texture volume rendering. May split → v0.25.x |
 | v0.26 | 4 (form-factor caveat) | **Structure builder** | `plans/v0.26_structure-builder.md` | Editable coord/cell table; Bravais templates; periodic-table atom-add — all round-tripped to the text buffer |

@@ -973,23 +973,61 @@ export class CrystalRenderer {
 
   // --- Volumetric / Isosurface ---
 
-  private volumetricData: VolumetricData | null = null;
+  // v0.23 multi-grid: store the full named-grid list; the active index
+  // selects which grid the isosurface (and later slice/volume) meshes.
+  // `volumetricData` is a getter over the active grid so every existing
+  // read site (buildIsosurface, getIsoRange, rebuild) is unchanged and a
+  // single-grid load is byte-identical to the pre-v0.23 path.
+  private volumetricGrids: VolumetricData[] = [];
+  private activeGridIndex = 0;
+  private get volumetricData(): VolumetricData | null {
+    return this.volumetricGrids[this.activeGridIndex] ?? null;
+  }
   private isoLevel = 0;
 
-  loadVolumetric(data: { origin: [number, number, number]; lattice: [number, number, number][]; dims: [number, number, number]; data: Float32Array; stride?: number; originalDims?: [number, number, number] }) {
-    this.volumetricData = {
-      origin: data.origin,
-      lattice: data.lattice,
-      dims: data.dims,
-      data: data.data,
-      stride: data.stride,
-      originalDims: data.originalDims,
-    };
-    // Auto set iso level to 10% of max value
+  /** Legacy single-grid entry (embed + back-compat). Wraps into the list. */
+  loadVolumetric(data: VolumetricData) {
+    this.loadVolumetrics([data]);
+  }
+
+  /** v0.23 — load a list of named grids; grid 0 becomes active. */
+  loadVolumetrics(list: VolumetricData[]) {
+    this.volumetricGrids = list.map(d => ({
+      origin: d.origin,
+      lattice: d.lattice,
+      dims: d.dims,
+      data: d.data,
+      stride: d.stride,
+      originalDims: d.originalDims,
+      name: d.name,
+      kind: d.kind,
+    }));
+    this.activeGridIndex = 0;
+    this.refreshIsoForActiveGrid();
+  }
+
+  /** v0.23 — switch which named grid drives the isosurface (23.4 UI wires this). */
+  setActiveGrid(index: number) {
+    if (index < 0 || index >= this.volumetricGrids.length) return;
+    this.activeGridIndex = index;
+    this.refreshIsoForActiveGrid();
+  }
+
+  /** Names of the loaded grids, in order (for the 23.4 selection UI). */
+  getGridNames(): string[] {
+    return this.volumetricGrids.map((g, i) => g.name ?? `grid ${i + 1}`);
+  }
+
+  getActiveGridIndex(): number { return this.activeGridIndex; }
+
+  private refreshIsoForActiveGrid() {
+    const g = this.volumetricData;
+    if (!g) { this.buildIsosurface(); return; }
+    // Auto set iso level to 10% of max value (unchanged from v0.22).
     let maxVal = 0;
     let minVal = 0;
-    for (let i = 0; i < this.volumetricData.data.length; i++) {
-      const v = this.volumetricData.data[i];
+    for (let i = 0; i < g.data.length; i++) {
+      const v = g.data[i];
       if (v > maxVal) maxVal = v;
       if (v < minVal) minVal = v;
     }

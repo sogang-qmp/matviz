@@ -397,6 +397,7 @@ Common options:
 | `--polyhedra` | Show coordination polyhedra (auto-detected centers) |
 | `--polyhedra-centers Ti,Fe` | Comma-separated list of polyhedra-center elements (implies `--polyhedra`) |
 | `--iso <level>` | Isosurface level for volumetric files (both +level and −level are rendered) |
+| `--grid <name>` | Select a named grid when a file has several — CHGCAR spin (`charge`/`magnetization`/`spin_up`/`spin_down`, or `magnetization_x`/`_y`/`_z` for SOC) or XSF multi-datagrid (by label). Default: first grid; unknown names list the options on stderr |
 | `--plane h,k,l` | Add a lattice plane by Miller indices |
 | `--vectors` | Render per-atom vector arrows. Auto-detected from POSCAR `MAGMOM`, XSF trailing columns (cols 5–7), extended-XYZ `Properties=` (`magmom`/`forces`/`velocities`/`displacements`), CIF `_atom_site_moment_*`. Aliased as `--magmom`. |
 | `--vector-colormap <m>` | Arrow color: `redblue` (default; sign-coded by v_z) or `viridis` (sequential by \|v\|). Alias: `--magmom-colormap`. |

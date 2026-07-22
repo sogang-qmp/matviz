@@ -42,7 +42,10 @@ const ICON = {
 interface ParsedContent {
   uri: vscode.Uri;
   trajectory: CrystalTrajectory;
+  // v0.23 multi-grid: `volumetrics` is the canonical list posted to the
+  // webview; `volumetric` kept for export/info convenience === [0].
   volumetric?: VolumetricData;
+  volumetrics?: VolumetricData[];
   // First-frame convenience for export / info display.
   structure: CrystalStructure;
   // v0.22 Tier 2: when true, the content was loaded via the raw-byte parser
@@ -106,6 +109,7 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
         uri: document.uri,
         trajectory: result.trajectory,
         volumetric: result.volumetric,
+        volumetrics: result.volumetrics,
         structure: result.trajectory.frames[0],
       };
     } catch {
@@ -136,6 +140,7 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
             uri: document.uri,
             trajectory: result.trajectory,
             volumetric: result.volumetric,
+            volumetrics: result.volumetrics,
             structure: result.trajectory.frames[0],
             usedRawBytePath: true,
           };
@@ -209,17 +214,23 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
       } else {
         webviewPanel.webview.postMessage({ type: 'loadStructure', data: c.structure });
       }
-      if (c.volumetric) {
+      // v0.23: post the full named-grid list. `volumetrics` is always
+      // populated by the parser layer (attachGridList) when any grid
+      // exists; fall back to the single `volumetric` for defensiveness.
+      const grids = c.volumetrics ?? (c.volumetric ? [c.volumetric] : []);
+      if (grids.length > 0) {
         webviewPanel.webview.postMessage({
-          type: 'loadVolumetric',
-          data: {
-            origin: c.volumetric.origin,
-            lattice: c.volumetric.lattice,
-            dims: c.volumetric.dims,
-            data: c.volumetric.data,
-            stride: c.volumetric.stride,
-            originalDims: c.volumetric.originalDims,
-          },
+          type: 'loadVolumetrics',
+          data: grids.map(g => ({
+            origin: g.origin,
+            lattice: g.lattice,
+            dims: g.dims,
+            data: g.data,
+            stride: g.stride,
+            originalDims: g.originalDims,
+            name: g.name,
+            kind: g.kind,
+          })),
         });
       }
     };
@@ -481,6 +492,10 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
           </div>
         </div>
       </div>
+    </div>
+    <div class="panel-section hidden" id="grid-section">
+      <div class="panel-label" title="Select which volumetric grid to display — CHGCAR charge/magnetization/spin, or multiple XSF datagrids">Grid</div>
+      <select id="grid-select" class="panel-select" title="Active volumetric grid"></select>
     </div>
     <div class="panel-section hidden" id="iso-section">
       <div class="panel-label" title="Isosurface contour level for the loaded volumetric data">Iso-level</div>
