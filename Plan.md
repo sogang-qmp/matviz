@@ -334,7 +334,20 @@ later milestone, not a v0.19 gate.
 
 ---
 
-## v0.21 — Web SPA on github.io
+## v0.21 — Embeddable page widget  ⟵ PIVOTED 2026-07-22
+
+> **Pivot**: v0.21 no longer targets a standalone github.io SPA. Per the
+> 2026-07-22 direction change it ships an **embeddable widget** for the
+> `sogang-qmp/recipes` portal (engine-once + per-figure div + inline data +
+> `MatViz.mount()`), with **collapsed-by-default chrome** and **host-theme
+> reactivity**. The active plan pair is
+> `plans/v0.21_embeddable-widget.md` + `_impl.md`. Key consequences: the portal
+> sandbox CSP (`connect-src 'none'`, no `wasm-unsafe-eval`) **drops** drag-drop,
+> `?file=URL`, Materials Project fetch, permalink share, and github.io deploy,
+> and **omits** spglib symmetry in the embed. The original SPA scope below is
+> retained for historical context only.
+
+### Original SPA scope (superseded — kept for context)
 
 **Goal**: Ship a single-page-app version of matviz that runs entirely in a browser (no VSCode required), hosted on `twinace98.github.io/matviz` (or similar). Drag a `.cif` / `POSCAR` / `XSF` / etc. onto the page → it renders in 3D with the same toolbar / side panel / Measure HUD / info pill / axis indicator that the VSCode webview uses today.
 
@@ -368,6 +381,46 @@ later milestone, not a v0.19 gate.
 **Decision gate at 21.1 kickoff** — esbuild SPA target vs. Vite. Vite has nicer dev-server ergonomics and auto-splits assets, but matviz already standardized on esbuild for the dual-bundle build. Default: stay with esbuild (one tool, one config) unless dev-server hot-reload becomes a bottleneck during 21.2-21.3 development.
 
 **Exit criterion**: `twinace98.github.io/matviz` renders all test-fixture formats correctly via drag-drop + URL param + sample gallery; permalink survives a hard reload; site loads in <2 s on a cold cache (≤ 6 MB total bundle weight is the soft target — Three.js + parsers ≈ 5 MB, the rest is matviz code).
+
+---
+
+## Crystal Viewer parity roadmap (v0.23–v0.26)  ⟵ added 2026-07-22
+
+**Origin**: feature-gap analysis of MatViz against the Genspark
+"Crystal Viewer" web workbench manual (`CrystalViewerManual.pdf`). The
+manual documents a 4-mode `Data` menu (Isosurface·Surface·Volumetric·
+Plane), CHGCAR spin decomposition, multi-DATAGRID XSF, BZ plotting, and
+a structure builder — most of which MatViz does not yet have. Missing
+features were ranked by **payoff for the DFT/GW/BSE + magnetism
+workflow vs. implementation cost** into four tiers, each shipped as one
+version. Ordering is dependency-driven, not arbitrary: every later tier
+builds on v0.23's named-grid model.
+
+| Ver | Tier | Theme | Plan | Headline features |
+|-----|------|-------|------|-------------------|
+| v0.23 | 1 (must) | **Multi-grid data model** | `plans/v0.23_multi-grid-data-model.md` | CHGCAR spin (charge/mag/spin_up·down + SOC σ₁σ₂σ₃); multi-`DATAGRID_3D` XSF; grid-selection surface (`--grid`) |
+| v0.24 | 2 (cheap win) | **Signed-iso + value-range + measurement** | `plans/v0.24_signed-iso-and-measurement.md` | ± isosurface toggle + colors (renderer already draws both lobes); Level/Window + "Mid to 0"; centroid / center-of-mass |
+| v0.25 | 3 (big) | **Slice · BZ · Volume** | `plans/v0.25_slice-bz-volume.md` | 2D slice/Plane viewer; Brillouin-zone plot + k-path; WebGL2 3D-texture volume rendering. May split → v0.25.x |
+| v0.26 | 4 (form-factor caveat) | **Structure builder** | `plans/v0.26_structure-builder.md` | Editable coord/cell table; Bravais templates; periodic-table atom-add — all round-tripped to the text buffer |
+
+**Numbering**: chosen 2026-07-22 — continues after the shipped v0.22.0;
+v0.21 (embeddable widget) remains a separate track. **Dependency
+spine**: v0.23 `VolumetricGrid[]` → v0.24 per-grid `ValueRange` → v0.25
+slice/volume consume both. v0.26 is independent of the grid work.
+
+**Deliberate scope narrowings** (recorded so they aren't re-litigated):
+- Manual "Surface mesh (wireframe/shaded)" mode → folded into an
+  isosurface material toggle in v0.25 (D4 there), not a 4th code path.
+- Manual multi-window Layout 1/2/3 + docked slice window → MatViz stays
+  single-canvas with collapsible panels (VSCode form factor); slice is a
+  panel `<canvas>`, not an OS window.
+- Structure builder (v0.26) is re-cast as text-buffer round-trip, since
+  raw-text editing already reflows the view (v0.19).
+
+**Kickoff discipline**: each version still requires its own kickoff
+approval (write the `_impl.md` spec, then Gate). These plan files are the
+`v{N}_*.md` half of each pair; the `_impl.md` half is authored at each
+version's kickoff.
 
 ---
 
