@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<!--
+  matviz embed smoke-test host page (v0.21 feat 21.1).
+  Simulates the sogang-qmp/112-Gd2C-H/site shell: <html data-theme> drives a
+  --bg CSS var on body, and a ◐ button toggles light/dark. The widget must
+  follow it live. Open by double-click (file://) — no server needed.
+-->
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>matviz embed — smoke test</title>
+  <style>
+    :root { --bg:#ffffff; --fg:#1f2328; --border:#e8eaed; }
+    [data-theme="dark"] { --bg:#191b1f; --fg:#dfe2e7; --border:#2a2d33; }
+    html, body { background: var(--bg); color: var(--fg); }
+    body { font: 14px system-ui, sans-serif; margin: 0; padding: 24px; }
+    .card {
+      max-width: 680px; height: 440px; margin: 12px 0;
+      border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    }
+    button { font: inherit; padding: 6px 12px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>matviz embed — smoke test</h1>
+  <button id="toggle">◐ toggle theme</button>
+
+  <!-- one figure: div + inline data + one mount() call -->
+  <div id="si-viewer" class="card"></div>
+  <script type="text/plain" id="si-data">Silicon diamond
+   5.43
+   0.5  0.5  0.0
+   0.0  0.5  0.5
+   0.5  0.0  0.5
+   Si
+   2
+Direct
+   0.00  0.00  0.00
+   0.25  0.25  0.25
+</script>
+
+  <script src="../dist/matviz-embed.js"></script>
+  <script>
+    MatViz.mount("si", { format: "poscar", theme: "auto", supercell: [2, 2, 2] });
+    document.getElementById("toggle").addEventListener("click", () => {
+      const root = document.documentElement;
+      root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+    });
+  </script>
+</body>
+</html>

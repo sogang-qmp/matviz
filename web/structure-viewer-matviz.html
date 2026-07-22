@@ -1,0 +1,111 @@
+<!--meta
+title: 결정구조 뷰어 — matviz (테마 연동)
+updated: 2026-07-22
+tags: recipe, matviz, three.js, crystal, structure, cif, poscar, xsf, isosurface, viewer
+summary: CIF/POSCAR/XSF/cube → matviz(Three.js) 임베드. 페이지 테마(라이트/다크) 자동 추종·컨트롤 접힘 기본·아이소서피스. 엔진 1회 + 그림당 div+인라인 데이터+한 줄.
+-->
+
+<p>결정구조를 <strong>matviz</strong>(Three.js 엔진)로 페이지에 삽입하는 뷰어이다. 기존 <a href="structure-viewer.html">3Dmol 레시피</a>보다 무겁지만 — <strong>아이소서피스</strong>(전하밀도·파동함수)·<strong>배위다면체</strong>·<strong>거리/각도 측정</strong>·<strong>슈퍼셀</strong>을 지원하고, 무엇보다 <strong>페이지의 라이트/다크 테마를 자동 추종</strong>한다(3Dmol 임베드는 흰 배경 고정).</p>
+<ul>
+  <li><strong>입력</strong>: CIF·POSCAR/CONTCAR·XSF(벡터 포함)·Gaussian cube·CHGCAR — 인라인 <code>&lt;script type="text/plain"&gt;</code>.</li>
+  <li><strong>테마</strong>: <code>theme:"auto"</code> — <code>&lt;html data-theme&gt;</code> + OS 설정을 관찰해 실시간 전환. 캔버스 배경은 페이지 배경색에 맞춰짐.</li>
+  <li><strong>UI</strong>: 페이지-내부 그림답게 <strong>컨트롤 접힘이 기본</strong>. 우상단 <code>⋯</code>로 펼침(스타일·슈퍼셀·아이소·리셋), Esc/바깥클릭으로 접힘.</li>
+  <li><strong>오프라인</strong>: 네트워크 fetch 없음(<code>file://</code> 동작). 대칭성 검출(spglib)은 임베드에서 생략 — CIF 선언 space group만 표시, 그 외 P1.</li>
+</ul>
+
+<h2>다운로드 · 설치</h2>
+
+<ul>
+  <li><strong>엔진 파일</strong>: <code>matviz-embed.js</code> — 약 660 KB, self-contained(Three.js·파서·렌더러 포함, 외부 의존성·네트워크 0).</li>
+  <li><strong>받기</strong>: <a href="https://raw.githubusercontent.com/sogang-qmp/matviz/main/web/matviz-embed.js">matviz-embed.js 다운로드</a>
+      (matviz 저장소 <code>web/matviz-embed.js</code> — 빌드 시 자동 갱신되는 배포본). <code>3Dmol-min.js</code>처럼 <strong>self-host</strong>한다(CDN 없음).</li>
+  <li><strong>두기</strong>: 프로젝트 사이트는 <code>assets/lib/matviz-embed.js</code>, 포탈은 <code>static/lib/matviz-embed.js</code>(다른 vendored 라이브러리와 같은 위치). 갱신 시 파일만 교체.</li>
+  <li><strong>불러오기</strong>: 페이지에 <code>&lt;script src="…/matviz-embed.js"&gt;</code>를 <strong>한 번</strong>(깊이만큼 <code>../</code>) → <code>window.MatViz</code> 사용 가능.</li>
+</ul>
+
+<h2>Live demo</h2>
+
+<p class="note">예제 NaCl(Fm-3m). 드래그 회전 · 휠 줌 · 우클릭 평행이동. 우상단 <code>⋯</code>로 컨트롤. 페이지 우상단 ◐로 테마를 바꾸면 뷰어도 따라 바뀐다.</p>
+
+<div id="nacl-viewer" style="position:relative;width:100%;max-width:680px;height:440px;border:1px solid var(--border,rgba(128,128,128,.3));border-radius:6px;overflow:hidden"></div>
+<script type="text/plain" id="nacl-data">data_NaCl
+_cell_length_a   5.6402
+_cell_length_b   5.6402
+_cell_length_c   5.6402
+_cell_angle_alpha 90.000
+_cell_angle_beta  90.000
+_cell_angle_gamma 90.000
+_symmetry_space_group_name_H-M 'F m -3 m'
+loop_
+_atom_site_label
+_atom_site_type_symbol
+_atom_site_fract_x
+_atom_site_fract_y
+_atom_site_fract_z
+Na1 Na 0.00000 0.00000 0.00000
+Na2 Na 0.50000 0.50000 0.00000
+Na3 Na 0.50000 0.00000 0.50000
+Na4 Na 0.00000 0.50000 0.50000
+Cl1 Cl 0.50000 0.50000 0.50000
+Cl2 Cl 0.00000 0.00000 0.50000
+Cl3 Cl 0.00000 0.50000 0.00000
+Cl4 Cl 0.50000 0.00000 0.00000
+</script>
+
+<!-- 엔진: 페이지에 한 번만. 이 라이브 데모(포탈)=/static/lib/, 복사해 쓰는 프로젝트
+     사이트=assets/lib/(깊이만큼 ../). 파일은 위 "다운로드"에서 받아 그 위치에 둔다. -->
+<script src="/static/lib/matviz-embed.js"></script>
+<script>
+  MatViz.mount("nacl", { format: "cif", theme: "auto" });
+</script>
+
+<p class="note" style="margin-top:1.4rem">자기구조 예제 — NiO 반강자성. POSCAR <code>MAGMOM</code> 라인에서 모멘트 화살표(Ni↑ / Ni↓)를 <strong>자동 표시</strong>한다. <code>⋯</code>의 <strong>Moments</strong>로 켜고/끄고, <strong>Arrows</strong>에서 Red–blue(부호색) ↔ Single(단일색) 전환.</p>
+
+<div id="nio-viewer" style="position:relative;width:100%;max-width:680px;height:420px;border:1px solid var(--border,rgba(128,128,128,.3));border-radius:6px;overflow:hidden"></div>
+<script type="text/plain" id="nio-data">NiO AFM rocksalt MAGMOM = 2.0 -2.0 0.0 0.0
+1.0
+4.18 0.00 0.00
+0.00 4.18 0.00
+0.00 0.00 4.18
+Ni O
+2 2
+Direct
+0.00 0.00 0.00
+0.50 0.50 0.50
+0.50 0.00 0.00
+0.00 0.50 0.50
+</script>
+<script>
+  MatViz.mount("nio", { format: "poscar", theme: "auto", supercell: [2, 2, 1] });
+</script>
+
+<h2>데이터 형식</h2>
+
+<ul>
+  <li>구조 텍스트를 <code>&lt;script type="text/plain" id="{prefix}-data"&gt;</code>에 그대로 인라인(원자 좌표·격자 포함).</li>
+  <li>포맷은 <code>format</code>으로 지정(<code>cif</code>/<code>poscar</code>/<code>xsf</code>/<code>cube</code>/<code>chgcar</code>) 또는 내용 자동 감지.</li>
+  <li>아이소서피스: cube/CHGCAR/XSF 볼류메트릭이면 <code>iso: &lt;level&gt;</code>로 등가면. 접힌 패널의 슬라이더로 조절.</li>
+  <li>벡터(자기모멘트·힘): POSCAR <code>MAGMOM</code>·XSF 후행열·ext-XYZ·CIF moment를 화살표로 자동 표시. <code>vectors:false</code>로 끄기, 패널 <strong>Arrows</strong>에서 Red–blue/Single 색.</li>
+  <li>옵션: <code>supercell:[2,2,2]</code>, <code>style:"space-filling"</code>, <code>collapsed:false</code>(펼친 채 시작), <code>theme:"light"|"dark"</code>(고정).</li>
+</ul>
+
+<h2>복사해서 쓰기</h2>
+
+<p>엔진 스크립트는 <strong>페이지에 한 번만</strong>. 그림 하나는 <em>div + 데이터 블록 + <code>MatViz.mount</code> 한 줄</em>. 구조를 바꿀 땐 데이터 블록의 문자열만 갈아끼운다.</p>
+
+<h3>1) 엔진 (페이지에 한 번)</h3>
+<pre><code>&lt;!-- 프로젝트 사이트: 깊이만큼 ../ (depth-2 페이지면 ../../assets/lib/) --&gt;
+&lt;script src="assets/lib/matviz-embed.js"&gt;&lt;/script&gt;</code></pre>
+
+<h3>2) 그림 (구조마다 복사, 데이터만 교체)</h3>
+<pre><code>&lt;div id="myxtal-viewer" style="position:relative;width:100%;max-width:680px;height:440px;
+     border:1px solid var(--border,rgba(128,128,128,.3));border-radius:6px;overflow:hidden"&gt;&lt;/div&gt;
+&lt;script type="text/plain" id="myxtal-data"&gt;
+... CIF / POSCAR / XSF 텍스트를 그대로 ...
+&lt;/script&gt;
+&lt;script&gt;
+  MatViz.mount("myxtal", { format: "cif", theme: "auto" });
+  // 볼류메트릭이면:  MatViz.mount("myxtal", { format:"cube", theme:"auto", iso:0.02 });
+&lt;/script&gt;</code></pre>
+
+<p class="note"><code>prefix</code>("myxtal")는 페이지에서 <strong>유일</strong>해야 한다(여러 그림 공존 시 id 충돌 방지). 테마 토글이 <code>&lt;html data-theme&gt;</code>가 아니면 <code>themeAttribute</code>/<code>themeTarget</code>으로 지정.</p>

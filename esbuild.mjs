@@ -1,7 +1,21 @@
 import * as esbuild from 'esbuild';
 import { copyFileSync, statSync, mkdirSync } from 'node:fs';
+import path from 'node:path';
 
 const watch = process.argv.includes('--watch');
+
+// v0.21 (feat 21.6) — the embeddable widget omits spglib WASM (the recipes/site
+// sandbox forbids 'wasm-unsafe-eval' and runs on file://). Redirect the
+// spglibWasm module to a no-WASM stub for the embed build ONLY, so
+// @spglib/moyo-wasm never enters dist/matviz-embed.js.
+const spglibEmbedStub = {
+  name: 'spglib-embed-stub',
+  setup(build) {
+    build.onResolve({ filter: /shared[/\\]spglibWasm$/ }, () => ({
+      path: path.resolve('src/shared/spglibWasm.embed.ts'),
+    }));
+  },
+};
 
 // v0.20.1 — copy spglib WASM artifact into dist/ (CLI renderer reads via fs)
 // AND media/ (webview loads via webview.asWebviewUri). Source of truth lives
@@ -40,6 +54,22 @@ const webviewConfig = {
   platform: 'browser',
   target: 'es2020',
   sourcemap: true,
+};
+
+// v0.21 (feat 21.1) — embeddable page widget. Self-contained IIFE assigning
+// window.MatViz; bundles Three.js + parsers + renderer. No 'vscode', no WASM
+// (spglib aliased to a stub), no network — deployable to a static site's
+// assets/lib/ and usable over file://.
+const embedConfig = {
+  entryPoints: ['src/webview/embed/index.ts'],
+  bundle: true,
+  outfile: 'dist/matviz-embed.js',
+  format: 'iife',
+  platform: 'browser',
+  target: 'es2020',
+  sourcemap: false,
+  minify: true,
+  plugins: [spglibEmbedStub],
 };
 
 const cliConfig = {
@@ -163,6 +193,14 @@ if (watch) {
   copySpglibWasm();
   await esbuild.build(extensionConfig);
   await esbuild.build(webviewConfig);
+  await esbuild.build(embedConfig);
+  // v0.21 — publish a tracked copy of the embed bundle for download/vendoring.
+  // dist/ is gitignored; web/matviz-embed.js is committed so site authors can
+  // grab it (raw GitHub URL) and drop it into their assets/lib/. esbuild's
+  // minified output is deterministic, so this only changes git when the bundle
+  // actually changes.
+  copyFileSync('dist/matviz-embed.js', 'web/matviz-embed.js');
+  console.log('matviz-embed: copied to web/matviz-embed.js (tracked download)');
   await esbuild.build(cliConfig);
   await esbuild.build(cliHelpersConfig);
   await esbuild.build(harnessConfig);

@@ -15,7 +15,10 @@ export interface VectorArrowInstance {
   vector: [number, number, number];
 }
 
-export type Colormap = 'redblue' | 'viridis';
+export type Colormap = 'redblue' | 'viridis' | 'single';
+
+/** Uniform arrow color for the 'single' colormap (amber — legible on light + dark). */
+const SINGLE_COLOR: [number, number, number] = [0.93, 0.6, 0.13];
 
 const ZERO_THRESHOLD = 1e-4;
 // Scale: 1 Å of arrow length per unit-magnitude vector. Tuned for typical
@@ -156,8 +159,10 @@ function length3(v: [number, number, number]): number {
  *   redblue: sign-coded — positive moment-z → red, negative → blue, with
  *            saturation by |m|/maxMag. Best for collinear AFM/FM systems.
  *   viridis: sequential by magnitude (perceptually uniform-ish 4-stop).
+ *   single:  one uniform color for every arrow (no direction/magnitude coding).
  */
 function colormapValue(map: Colormap, vector: [number, number, number], mag: number, maxMag: number): [number, number, number] {
+  if (map === 'single') return SINGLE_COLOR;
   const t = mag / maxMag;
   if (map === 'viridis') {
     // 4-stop approximation: 0=#440154, 0.33=#3b528b, 0.67=#21918c, 1=#fde725

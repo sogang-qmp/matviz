@@ -513,6 +513,7 @@ function updateTrajectorySectionVisibility() {
 const vectorCheck = document.getElementById('vector-check') as HTMLInputElement;
 const vecCmapRedblue = document.getElementById('vec-cmap-redblue') as HTMLInputElement;
 const vecCmapViridis = document.getElementById('vec-cmap-viridis') as HTMLInputElement;
+const vecCmapSingle = document.getElementById('vec-cmap-single') as HTMLInputElement;
 const vecKindLabel = document.getElementById('vec-kind-label') as HTMLElement | null;
 if (vectorCheck) {
   vectorCheck.addEventListener('change', () => renderer.setShowAtomVectors(vectorCheck.checked));
@@ -522,6 +523,9 @@ if (vecCmapRedblue) {
 }
 if (vecCmapViridis) {
   vecCmapViridis.addEventListener('change', () => { if (vecCmapViridis.checked) renderer.setVectorColormap('viridis'); });
+}
+if (vecCmapSingle) {
+  vecCmapSingle.addEventListener('change', () => { if (vecCmapSingle.checked) renderer.setVectorColormap('single'); });
 }
 const vecScaleSlider = document.getElementById('vec-scale-slider') as HTMLInputElement | null;
 const vecScaleNum = document.getElementById('vec-scale-num') as HTMLInputElement | null;
@@ -551,6 +555,7 @@ function updateAtomVectorsSectionVisibility() {
     const cmap = renderer.getVectorColormap();
     if (vecCmapRedblue) vecCmapRedblue.checked = (cmap === 'redblue');
     if (vecCmapViridis) vecCmapViridis.checked = (cmap === 'viridis');
+    if (vecCmapSingle) vecCmapSingle.checked = (cmap === 'single');
     const scale = renderer.getVectorScale();
     if (vecScaleSlider) vecScaleSlider.value = String(scale);
     if (vecScaleNum) vecScaleNum.value = scale.toFixed(1);

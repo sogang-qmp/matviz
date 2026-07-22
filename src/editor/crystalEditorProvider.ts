@@ -543,6 +543,7 @@ export class CrystalEditorProvider implements vscode.CustomTextEditorProvider {
       <div class="toggle-group" id="vector-colormap-row" title="Colormap for arrow color">
         <label class="toggle"><input type="radio" name="vec-colormap" value="redblue" id="vec-cmap-redblue" checked><span>Red/Blue</span></label>
         <label class="toggle"><input type="radio" name="vec-colormap" value="viridis" id="vec-cmap-viridis"><span>Viridis</span></label>
+        <label class="toggle"><input type="radio" name="vec-colormap" value="single" id="vec-cmap-single"><span>Single</span></label>
       </div>
       <div class="iso-row" title="Arrow length scale (Å per unit-magnitude vector). 1.0 = 1 Å arrow per μB / per eV·Å⁻¹.">
         <span class="iso-row-k">Scale</span>
