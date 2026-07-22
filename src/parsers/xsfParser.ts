@@ -148,6 +148,7 @@ export function parseXsf(content: string): CrystalStructure & { volumetric?: Vol
   const datagridIdx = content.indexOf('BEGIN_BLOCK_DATAGRID_3D');
   if (datagridIdx >= 0) {
     volumetric = parseDatagrid3D(content.slice(datagridIdx));
+    if (volumetric) snapGridLatticeToCell(volumetric, lattice);
   }
 
   const atomVectors = extractAtomVectorsFromRows(atomRows) ?? undefined;
@@ -289,6 +290,7 @@ export function parseXsfTraj(content: string): { trajectory: CrystalTrajectory; 
   const datagridIdx = content.indexOf('BEGIN_BLOCK_DATAGRID_3D');
   if (datagridIdx >= 0) {
     volumetric = parseDatagrid3D(content.slice(datagridIdx));
+    if (volumetric && frames[0]) snapGridLatticeToCell(volumetric, frames[0].lattice);
   }
 
   return { trajectory: { frames, latticeMode }, volumetric };
@@ -343,7 +345,127 @@ function parseDatagrid3D(block: string): VolumetricData | undefined {
     i++;
   }
 
-  return { origin, lattice: gridLattice, dims: [nx, ny, nz], data };
+  return trimRedundantPeriodicPlanes({ origin, lattice: gridLattice, dims: [nx, ny, nz], data });
+}
+
+/**
+ * Drop the duplicated boundary plane of an XSF "general datagrid".
+ *
+ * XCrySDen/PWSCF/Wannier90 write the periodic-closure grid point on BOTH ends
+ * of each spanning direction, so `data[0] == data[N-1]` along that axis and the
+ * true number of sampling intervals is `N-1`, not `N`. matviz's marching cubes
+ * uses `step = lattice / N` with a periodic wrap (index `N -> 0`) — the CHGCAR
+ * convention of `N` non-redundant points spanning `N` intervals. Feeding a
+ * general-grid array in unchanged squeezes the whole density by `N/(N-1)` toward
+ * the origin (~2.4% for a 41-point axis, ~1.5% for 65), so the iso mesh no
+ * longer sits on the atoms.
+ *
+ * Fix: detect the duplicated boundary plane per axis and drop it, leaving `N-1`
+ * non-redundant points that `lattice/(N-1)` step + pbc wrap render exactly onto
+ * the cell. Detection is data-driven (planes compared within a relative
+ * tolerance), so a genuinely non-redundant sub-region grid is left untouched.
+ * The spanning vectors are unchanged — they still describe the full cell edge,
+ * which after trimming is spanned by `N-1` intervals as it should be.
+ */
+function trimRedundantPeriodicPlanes(vd: VolumetricData): VolumetricData {
+  const [nx, ny, nz] = vd.dims;
+  const d = vd.data;
+  const at = (ix: number, iy: number, iz: number) => d[ix * ny * nz + iy * nz + iz];
+
+  let maxAbs = 0;
+  for (let k = 0; k < d.length; k++) { const a = Math.abs(d[k]); if (a > maxAbs) maxAbs = a; }
+  const tol = 1e-5 * (maxAbs || 1);
+
+  const planesEqualX = () => {
+    for (let iy = 0; iy < ny; iy++) for (let iz = 0; iz < nz; iz++)
+      if (Math.abs(at(0, iy, iz) - at(nx - 1, iy, iz)) > tol) return false;
+    return true;
+  };
+  const planesEqualY = () => {
+    for (let ix = 0; ix < nx; ix++) for (let iz = 0; iz < nz; iz++)
+      if (Math.abs(at(ix, 0, iz) - at(ix, ny - 1, iz)) > tol) return false;
+    return true;
+  };
+  const planesEqualZ = () => {
+    for (let ix = 0; ix < nx; ix++) for (let iy = 0; iy < ny; iy++)
+      if (Math.abs(at(ix, iy, 0) - at(ix, iy, nz - 1)) > tol) return false;
+    return true;
+  };
+
+  const trimX = nx > 2 && planesEqualX();
+  const trimY = ny > 2 && planesEqualY();
+  const trimZ = nz > 2 && planesEqualZ();
+  if (!trimX && !trimY && !trimZ) return vd;
+
+  const Nx = trimX ? nx - 1 : nx;
+  const Ny = trimY ? ny - 1 : ny;
+  const Nz = trimZ ? nz - 1 : nz;
+  const out = new Float32Array(Nx * Ny * Nz);
+  for (let ix = 0; ix < Nx; ix++)
+    for (let iy = 0; iy < Ny; iy++)
+      for (let iz = 0; iz < Nz; iz++)
+        out[ix * Ny * Nz + iy * Nz + iz] = at(ix, iy, iz);
+
+  return { origin: vd.origin, lattice: vd.lattice, dims: [Nx, Ny, Nz], data: out };
+}
+
+/**
+ * Re-anchor a volumetric datagrid's lattice to the crystal cell so the iso
+ * mesh aligns with the atoms.
+ *
+ * XSF writers disagree on what the three datagrid "spanning vectors" mean
+ * relative to the `dims = N` grid points. The data itself is periodic over the
+ * crystal cell, sampled on an FFT grid that divides the cell into N parts, so
+ * the physically correct voxel step is always `cell / N`. But the written
+ * spanning vector encodes a per-writer off-by-one:
+ *
+ *   - VASP-CHGCAR-like / pp.x          span = cell           (N intervals)
+ *   - Wannier90 (plot.F90)             span = cell·(N+1)/N   (writes the extra
+ *                                        periodic-closure interval into the span)
+ *
+ * Downstream rendering uses `step = lattice / dims` with periodic marching
+ * cubes, so feeding the *written* span makes a Wannier90 grid render N/(N+1)·…
+ * = e.g. 1/40 ≈ 2.5% too large, overshooting the atom cell.
+ *
+ * Fix: when the datagrid clearly spans the whole cell (origin at ~0 and each
+ * spanning vector parallel to the matching cell vector with a length ratio near
+ * 1, i.e. (N±1)/N), snap the iso lattice to the crystal cell. This is an exact
+ * no-op for span == cell, and corrects the (N+1)/N writers. Grids that cover a
+ * genuine sub-region (offset origin or a length ratio far from 1) are left
+ * untouched so partial-cell plots keep their own extent.
+ */
+function snapGridLatticeToCell(
+  vd: VolumetricData,
+  cell: [number, number, number][],
+): void {
+  if (cell.length !== 3) return;
+  const len = (v: number[]) => Math.hypot(v[0], v[1], v[2]);
+  const cellScale = Math.max(len(cell[0]), len(cell[1]), len(cell[2])) || 1;
+
+  // Origin must be at the cell corner (sub-region grids carry an offset).
+  if (len(vd.origin) > 1e-3 * cellScale) return;
+
+  for (let i = 0; i < 3; i++) {
+    const g = vd.lattice[i];
+    const c = cell[i];
+    const gl = len(g), cl = len(c);
+    if (gl === 0 || cl === 0) return;
+    // Parallel? |g × c| / (|g||c|) ~ 0
+    const cx = g[1] * c[2] - g[2] * c[1];
+    const cy = g[2] * c[0] - g[0] * c[2];
+    const cz = g[0] * c[1] - g[1] * c[0];
+    if (len([cx, cy, cz]) / (gl * cl) > 1e-3) return;
+    // Length ratio within ~(N±1)/N for any reasonable N (N>=3 => within 1±1/3).
+    const ratio = gl / cl;
+    if (ratio < 0.66 || ratio > 1.51) return;
+  }
+
+  // All axes qualify — anchor the iso grid to the crystal cell.
+  vd.lattice = [
+    [cell[0][0], cell[0][1], cell[0][2]],
+    [cell[1][0], cell[1][1], cell[1][2]],
+    [cell[2][0], cell[2][1], cell[2][2]],
+  ];
 }
 
 /**
@@ -364,6 +486,7 @@ export function parseXsfFromBytes(
   const headerStr = new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(0, datagridOffset));
   const header = parseXsf(headerStr);
   const volumetric = parseDatagrid3DFromBytes(bytes.subarray(datagridOffset), options);
+  if (volumetric) snapGridLatticeToCell(volumetric, header.lattice);
   return { ...header, volumetric };
 }
 
@@ -438,6 +561,9 @@ function parseDatagrid3DFromBytes(blockBytes: Uint8Array, options?: VolumetricLo
   if (stride > 1) {
     result.stride = stride;
     result.originalDims = [nx, ny, nz];
+    return result;
   }
-  return result;
+  // Only the full-resolution grid carries an exactly-duplicated boundary plane;
+  // once decimated the endpoints no longer match, so trim only when stride === 1.
+  return trimRedundantPeriodicPlanes(result);
 }
